@@ -1035,6 +1035,20 @@ function startOnline() {
         if (r) r.avatar.say(text);
         toast(`${id}: ${text}`, 2500);
       },
+      onVoice(id, mime, data) {
+        try {
+          const bin = atob(data);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+          const audio = new Audio(url);
+          audio.onended = () => URL.revokeObjectURL(url);
+          audio.play().catch(() => {});
+          const r = remotes.get(id);
+          if (r) r.avatar.say('🔊 ...');
+          toast(`🔊 ${id}`, 2000);
+        } catch (e) { /* bad clip */ }
+      },
       onStatus(ok) {
         const el = $('netBadge');
         el.textContent = ok ? `· onlayn, xona: ${room}` : '· aloqa uzildi';
@@ -1050,7 +1064,7 @@ function startOnline() {
       }, 1500);
     },
   };
-  $('chatBtn').hidden = false;
+  $('voiceBtn').hidden = !(navigator.mediaDevices && window.MediaRecorder);
   $('leaveOnlineBtn').hidden = false;
   $('resetBuildBtn').hidden = true;
   $('menuHelp').textContent = 'Onlayn: Roblon akkauntingizda saqlanadi. Qurganlaringizni xonadagilar ko\'radi.';
@@ -1094,6 +1108,69 @@ function sendChat() {
   online.room.sendChat(text);
   if (player.avatar) player.avatar.say(text);
 }
+// Voice messages: hold the button, talk, release to send (max 10 s)
+const VOICE_MAX = 10;
+let rec = null;
+function pickMime() {
+  for (const m of ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm']) {
+    if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return '';
+}
+async function startVoice() {
+  if (rec || !online) return;
+  rec = { chunks: [], cancelled: false, t0: performance.now() };
+  const mine = rec;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (e) {
+    rec = null;
+    toast('Mikrofonga ruxsat berilmadi', 2500);
+    return;
+  }
+  if (mine.cancelled) { stream.getTracks().forEach((t) => t.stop()); rec = null; return; }
+  const mime = pickMime();
+  const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 });
+  mine.mr = mr; mine.stream = stream;
+  mr.ondataavailable = (e) => { if (e.data && e.data.size) mine.chunks.push(e.data); };
+  mr.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    const dur = (performance.now() - mine.t0) / 1000;
+    if (mine.chunks.length && dur > 0.4) sendVoiceClip(new Blob(mine.chunks, { type: mr.mimeType || mime || 'audio/webm' }));
+  };
+  mr.start();
+  $('voiceBtn').classList.add('rec');
+  $('recBadge').classList.add('on');
+  mine.timer = setInterval(() => {
+    const sec = (performance.now() - mine.t0) / 1000;
+    $('recTime').textContent = Math.floor(sec);
+    if (sec >= VOICE_MAX) stopVoice();
+  }, 200);
+}
+function stopVoice() {
+  if (!rec) return;
+  const r = rec;
+  rec = null;
+  r.cancelled = true;
+  clearInterval(r.timer);
+  $('voiceBtn').classList.remove('rec');
+  $('recBadge').classList.remove('on');
+  if (r.mr && r.mr.state !== 'inactive') r.mr.stop();
+}
+function sendVoiceClip(blob) {
+  if (!online) return;
+  if (blob.size > 200000) { toast('Xabar juda uzun', 2000); return; }
+  const fr = new FileReader();
+  fr.onload = () => {
+    const data = String(fr.result).split(',')[1] || '';
+    online.room.sendVoice(blob.type.split(';')[0] ? blob.type : 'audio/webm', data);
+    if (player.avatar) player.avatar.say('🔊 ...');
+    toast('Ovozli xabar yuborildi', 1500);
+  };
+  fr.readAsDataURL(blob);
+}
+holdButton($('voiceBtn'), startVoice, stopVoice);
 $('chatBtn').onclick = () => ($('chatBar').classList.contains('on') ? sendChat() : openChat());
 $('chatSend').onclick = sendChat;
 $('chatInput').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') sendChat(); if (e.key === 'Escape') sendChat(); });
@@ -1313,11 +1390,11 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyB') setBuildMode(!buildMode);
   if (e.code === 'KeyX' && buildMode) { deleteMode = !deleteMode; renderBuildBar(); }
   if (e.code === 'KeyR') respawn();
-  if (e.code === 'KeyT' && online) { e.preventDefault(); input.keys.clear(); openChat(); }
+  if (e.code === 'KeyV' && online && !e.repeat) startVoice();
   if (e.code === 'KeyF' || e.code === 'KeyE') playerAttack();
   if (e.code === 'Space') e.preventDefault();
 });
-window.addEventListener('keyup', (e) => input.keys.delete(e.code));
+window.addEventListener('keyup', (e) => { input.keys.delete(e.code); if (e.code === 'KeyV') stopVoice(); });
 window.addEventListener('blur', () => { input.keys.clear(); player.jumpHeld = false; });
 
 // ---------- Game logic ----------

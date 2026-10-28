@@ -133,6 +133,11 @@
   #netBadge.ok { color: var(--hp-good); }
   #netBadge.bad { color: var(--hp-bad); }
   #chatBtn { pointer-events: auto; }
+  #voiceBtn { touch-action: none; }
+  #voiceBtn.rec { background: var(--danger); }
+  #recBadge { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); display: none; padding: 8px 14px;
+    border-radius: 12px; background: rgba(255, 59, 48, .85); font-weight: 800; font-size: 14px; }
+  #recBadge.on { display: block; }
   #chatBar { position: absolute; left: 50%; top: 60px; transform: translateX(-50%); display: none; gap: 6px;
     pointer-events: auto; width: min(420px, 80vw); }
   #chatBar.on { display: flex; }
@@ -160,6 +165,7 @@
   <div id="hpBar"><div id="hpFill"></div><div id="hpText">❤ <span id="hpText2"></span></div></div>
   <div id="topRight">
     <div style="display:flex; gap:8px">
+      <button class="iconBtn" id="voiceBtn" hidden>🎤 Ovoz</button>
       <button class="iconBtn" id="chatBtn" hidden>💬 Chat</button>
       <button class="iconBtn" id="respawnBtn">↺ Qayta</button>
       <button class="iconBtn" id="menuBtn">☰ Menyu</button>
@@ -167,6 +173,7 @@
     <div class="pill" id="players"></div>
   </div>
   <div id="toast"></div>
+  <div id="recBadge">● Yozilmoqda... <span id="recTime">0</span>s</div>
   <div id="chatBar"><input type="text" id="chatInput" maxlength="60" placeholder="Xabar yozing..." autocomplete="off"><button id="chatSend">Yuborish</button></div>
   <div id="joyHint">Yurish uchun<br>shu yerni<br>bosib suring</div>
   <div id="joyBase"><div id="joyKnob"></div></div>
@@ -214,11 +221,12 @@
     <div class="colors" id="shirtColors"></div>
     <button class="primary" id="playBtn">O'YNASH</button>
     <p class="help">
-      Onlayn: ro'yxatdan o'ting, do'stingiz bilan bir xil xona kodini yozing va birga o'ynang.<br>
+      Onlayn: ro'yxatdan o'ting, do'stingiz bilan bir xil xona kodini yozing va birga o'ynang.
+      🎤 Ovoz tugmasini bosib turib gapiring, qo'yib yuborsangiz xabar xonadagilarga boradi.<br>
       Chap tomonni bosib suring: yurish. O'ng tomonni suring: kamera, ikki barmoq: yaqinlashtirish.<br>
       ZARBA: qilich bilan urish. Dushmanlar (shilimshiq, qora ritsar) jonni kamaytiradi, ularni yengsangiz Roblon olasiz.<br>
       Obbyda 3 xil yo'l bor: Oson, O'rta va Qiyin. Registon, Labirint, Tog' va O'rmonni kashf qiling!<br>
-      Kompyuterda: W A S D, Probel, F: zarba, B: qurish, Esc: menyu.
+      Kompyuterda: W A S D, Probel, F: zarba, B: qurish, V: ovozli xabar (bosib turing), Esc: menyu.
     </p>
   </div>
 </div>

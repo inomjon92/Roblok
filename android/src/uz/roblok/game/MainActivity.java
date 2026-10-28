@@ -3,6 +3,7 @@ package uz.roblok.game;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -12,7 +13,9 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.Manifest;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -26,11 +29,13 @@ public class MainActivity extends Activity {
     // the copy bundled in assets is used when there is no internet.
     static final String SITE_URL = "https://roblok-inom1.vercel.app/";
     static final String OFFLINE_URL = "file:///android_asset/index.html";
-    static final int VERSION_CODE = 3;
+    static final int VERSION_CODE = 4;
+    static final int REQ_MIC = 7;
 
     private WebView webView;
     private boolean usingOffline;
     private volatile boolean pageReady;
+    private PermissionRequest pendingMic;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,7 +76,27 @@ public class MainActivity extends Activity {
                 if (url != null && url.startsWith(SITE_URL)) loadOffline();
             }
         });
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                boolean wantsMic = false;
+                for (String r : request.getResources()) {
+                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) wantsMic = true;
+                }
+                if (!wantsMic) {
+                    request.deny();
+                    return;
+                }
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    request.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
+                } else {
+                    // Voice messages: ask Android for the microphone, answer the page once the user decides
+                    if (pendingMic != null) pendingMic.deny();
+                    pendingMic = request;
+                    requestPermissions(new String[] { Manifest.permission.RECORD_AUDIO }, REQ_MIC);
+                }
+            }
+        });
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         setContentView(webView);
         hideSystemUi();
@@ -91,6 +116,17 @@ public class MainActivity extends Activity {
                 loadOffline();
             }
         }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        if (code != REQ_MIC || pendingMic == null) return;
+        if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+            pendingMic.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
+        } else {
+            pendingMic.deny();
+        }
+        pendingMic = null;
     }
 
     private void loadOffline() {

@@ -69,7 +69,8 @@ export const account = {
 };
 
 // One room = one Realtime channel. Everyone in it sees each other.
-// handlers: { onState(id, s), onLeave(id), onPlayers(list), onBlock(b), onEdits(list), onChat(id, text), onStatus(ok) }
+// handlers: { onState(id, s), onLeave(id), onPlayers(list), onNewcomer(id), onBlock(b), onEdits(list), onChat(id, text),
+//   onVoice(id, mime, base64), onStatus(ok) }
 export function joinRoom(room, me, handlers) {
   const id = me.username;
   const joinedAt = Date.now();
@@ -87,6 +88,11 @@ export function joinRoom(room, me, handlers) {
   });
   channel.on('broadcast', { event: 'chat' }, ({ payload }) => {
     if (payload && payload.id !== id) handlers.onChat(payload.id, String(payload.text || '').slice(0, 60));
+  });
+  channel.on('broadcast', { event: 'voice' }, ({ payload }) => {
+    if (!payload || payload.id === id || typeof payload.data !== 'string' || payload.data.length > 300000) return;
+    if (!/^audio\/[a-z0-9.+-]+(;[ a-z0-9=,.+-]*)?$/i.test(payload.mime || '')) return;
+    handlers.onVoice(payload.id, payload.mime, payload.data);
   });
   channel.on('presence', { event: 'sync' }, () => {
     const st = channel.presenceState();
@@ -119,6 +125,7 @@ export function joinRoom(room, me, handlers) {
     sendBlock(b) { send('b', b); },
     sendEdits(to, list) { send('edits', { to, list }); },
     sendChat(text) { send('chat', { id, text }); },
+    sendVoice(mime, data) { send('voice', { id, mime, data }); },
     updateMeta(meta) { channel.track(Object.assign({ name: me.username, joinedAt }, meta)); },
     leave() { sb().removeChannel(channel); },
   };
