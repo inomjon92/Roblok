@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   BLOCKS, T, MAP, MIN_Y, WATER_Y, LAKE, ZONES, key, parseKey, inLake, zoneAt, generate,
+  generateLandChunk, biomeAt, WORLD_LIMIT, LAND_VOIDS, inLandVoid,
 } from './world.js';
 import { account, joinRoom } from './online.js';
 
@@ -14,7 +15,7 @@ function readJSON(k) {
   try { const raw = localStorage.getItem(k); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
 }
 const save = Object.assign({
-  name: '', shirt: 0, coins: 0, added: {}, removed: [], cp: null, done: {}, kills: 0, sound: true, gfx: 'high',
+  name: '', shirt: 0, coins: 0, added: {}, removed: [], cp: null, done: {}, kills: 0, sound: true, gfx: 'high', diff: 'orta',
 }, readJSON(SAVE_KEY) || {});
 if (!readJSON(SAVE_KEY)) {
   // Carry the name, colour and Roblon over from v0.1; its world edits no longer fit the new map
@@ -35,6 +36,9 @@ function persist() {
 const gen = generate();
 const world = gen.world;
 const baseWorld = new Map(world);
+// The obby floats over open sky east of the map; keep the endless land away from it
+LAND_VOIDS.push([MAP, -22, Math.max(...gen.finishes.map((f) => f.area[3])) + 12, 22]);
+const inObby = (p) => inLandVoid(Math.floor(p.x), Math.floor(p.z));
 for (const k of save.removed) world.delete(Number(k));
 for (const k in save.added) world.set(Number(k), save.added[k]);
 save.removed = save.removed.map(Number);
@@ -190,6 +194,66 @@ water.rotation.x = -Math.PI / 2;
 water.scale.set(LAKE.rx + 0.6, LAKE.rz + 0.6, 1);
 water.position.set(LAKE.x + 0.5, WATER_Y, LAKE.z + 0.5);
 scene.add(water);
+
+// ---------- Endless land: chunks beyond the hand-made map appear as the player walks out ----------
+const landDone = new Set();       // chunk keys already generated (or part of the base map)
+const landWater = new Set();      // column keys covered by water
+const landColors = new Map();     // column key -> minimap colour
+const colKey = (x, z) => (x + 1024) * 2048 + (z + 1024);
+const isLandWater = (x, z) => landWater.has(colKey(Math.floor(x), Math.floor(z)));
+const CH0 = -MAP / CHUNK, CH1 = MAP / CHUNK - 1; // base map chunk range
+for (let cx = CH0; cx <= CH1; cx++) for (let cz = CH0; cz <= CH1; cz++) landDone.add((cx + 128) * 256 + (cz + 128));
+const CH_LIMIT = Math.floor(WORLD_LIMIT / CHUNK);
+function generateLand(cx, cz) {
+  const lk = (cx + 128) * 256 + (cz + 128);
+  landDone.add(lk);
+  const out = generateLandChunk(cx, cz);
+  const removed = online ? null : new Set(save.removed);
+  const b = out.blocks;
+  for (let i = 0; i < b.length; i += 2) {
+    const k = b[i];
+    // Never cover what is already there (the base map, a neighbour's tree) or what a player removed
+    if (world.has(k) || (online ? onlineEdits.has(k) : removed.has(k))) continue;
+    world.set(k, b[i + 1]);
+    indexBlock(k);
+  }
+  const x0 = cx * CHUNK, z0 = cz * CHUNK;
+  markDirty(x0, z0); markDirty(x0 + CHUNK - 1, z0 + CHUNK - 1);
+  if (out.water.length) {
+    const g = [];
+    for (let i = 0; i < out.water.length; i += 2) {
+      const x = out.water[i], z = out.water[i + 1];
+      landWater.add(colKey(x, z));
+      g.push(x, WATER_Y, z, x, WATER_Y, z + 1, x + 1, WATER_Y, z + 1, x, WATER_Y, z, x + 1, WATER_Y, z + 1, x + 1, WATER_Y, z);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(g, 3));
+    geo.computeVertexNormals();
+    const wm = new THREE.Mesh(geo, water.material);
+    wm.userData.landWater = true;
+    scene.add(wm);
+    landWaterMeshes.push(wm);
+  }
+  for (let i = 0; i < out.colors.length; i += 3) landColors.set(colKey(out.colors[i], out.colors[i + 1]), out.colors[i + 2]);
+  for (const c of out.coins) coins.push(makeCoin(c));
+  for (const e of out.enemies) enemies.push(new Enemy(e.type, e.pos));
+}
+const landWaterMeshes = [];
+let landTimer = 0;
+function updateLand(px, pz, budget) {
+  // Generate the nearest missing chunks around the player, a few per frame to avoid stutter
+  const r = Math.ceil(Math.min(viewDist, 100) / CHUNK) + 1;
+  const pcx = Math.floor(px / CHUNK), pcz = Math.floor(pz / CHUNK);
+  const todo = [];
+  for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+    const cx = pcx + dx, cz = pcz + dz;
+    if (Math.abs(cx) > CH_LIMIT || Math.abs(cz) > CH_LIMIT || dx * dx + dz * dz > r * r) continue;
+    if (!landDone.has((cx + 128) * 256 + (cz + 128))) todo.push([dx * dx + dz * dz, cx, cz]);
+  }
+  todo.sort((a, b) => a[0] - b[0]);
+  for (let i = 0; i < Math.min(budget, todo.length); i++) generateLand(todo[i][1], todo[i][2]);
+  return todo.length;
+}
 
 const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
 const clouds = [];
@@ -478,7 +542,7 @@ class Body {
     return true;
   }
   step(dt) {
-    this.inWater = inLake(this.pos.x, this.pos.z) && this.pos.y < WATER_Y;
+    this.inWater = this.pos.y < WATER_Y && (inLake(this.pos.x, this.pos.z) || isLandWater(this.pos.x, this.pos.z));
     if (this.inWater) this.vel.y = Math.max(this.vel.y - GRAVITY * 0.25 * dt, -2.5);
     else this.vel.y = Math.max(this.vel.y - GRAVITY * dt, -60);
     const maxD = Math.max(Math.abs(this.vel.x), Math.abs(this.vel.y), Math.abs(this.vel.z)) * dt;
@@ -583,6 +647,14 @@ function updateBot(b, dt) {
 }
 
 // ---------- Enemies ----------
+// Difficulty: how strong enemies are next to the hero. 'tinch' = enemies never attack.
+const DIFF = {
+  tinch: { name: 'Tinch', hp: 0.6, dmg: 0, reward: 0.5, regen: 10, aggro: 1, speed: 1 },
+  oson: { name: 'Oson', hp: 0.6, dmg: 0.45, reward: 1, regen: 8, aggro: 0.8, speed: 0.85 },
+  orta: { name: "O'rta", hp: 0.85, dmg: 0.75, reward: 1, regen: 6, aggro: 1, speed: 1 },
+  qiyin: { name: 'Qiyin', hp: 1.3, dmg: 1.4, reward: 1.5, regen: 3, aggro: 1.3, speed: 1.1 },
+};
+const diff = () => DIFF[save.diff] || DIFF.orta;
 const ENEMY = {
   slime: { name: 'Shilimshiq', hp: 60, dmg: 10, speed: 6, aggro: 14, reward: 3, w: 0.5, h: 1.0, respawn: 25 },
   knight: { name: 'Qora ritsar', hp: 140, dmg: 16, speed: 5.4, aggro: 18, reward: 10, w: 0.32, h: 1.85, respawn: 35 },
@@ -614,7 +686,7 @@ class Enemy {
     this.cfg = ENEMY[type];
     this.home = new THREE.Vector3(...home);
     this.body = new Body(home[0], home[1], home[2], this.cfg.w, this.cfg.h);
-    this.hp = this.cfg.hp;
+    this.hp = this.maxHp;
     this.dead = false;
     this.respawnT = 0;
     this.hitCd = 0;
@@ -651,10 +723,11 @@ class Enemy {
     this.group.add(this.hpSprite);
   }
   get pos() { return this.body.pos; }
+  get maxHp() { return Math.round(this.cfg.hp * diff().hp); }
   damage(amount, from) {
     if (this.dead) return;
     this.hp -= amount;
-    drawHp(this.hpSprite, Math.max(0, this.hp / this.cfg.hp));
+    drawHp(this.hpSprite, Math.max(0, this.hp / this.maxHp));
     const dx = this.pos.x - from.x, dz = this.pos.z - from.z, d = Math.hypot(dx, dz) || 1;
     const kb = this.type === 'boss' ? 4 : 9;
     this.body.vel.set((dx / d) * kb, 6, (dz / d) * kb);
@@ -671,14 +744,15 @@ class Enemy {
     burst(new THREE.Vector3(this.pos.x, this.pos.y + 0.8, this.pos.z), this.type === 'slime' ? 0x5ee05e : 0x333333, 22, 7);
     burst(new THREE.Vector3(this.pos.x, this.pos.y + 1, this.pos.z), 0xffcc33, 10, 5);
     sfx('kill');
-    save.coins += this.cfg.reward;
+    const reward = Math.max(1, Math.round(this.cfg.reward * diff().reward));
+    save.coins += reward;
     save.kills += 1;
     persist(); updateCoinsUI();
-    toast(`${this.cfg.name} yengildi! +${this.cfg.reward} Roblon`, 1800);
+    toast(`${this.cfg.name} yengildi! +${reward} Roblon`, 1800);
   }
   revive() {
     this.dead = false;
-    this.hp = this.cfg.hp;
+    this.hp = this.maxHp;
     this.body.pos.copy(this.home);
     this.body.vel.set(0, 0, 0);
     this.group.visible = true;
@@ -696,7 +770,8 @@ class Enemy {
     const toP = new THREE.Vector3(p.x - b.pos.x, 0, p.z - b.pos.z);
     const dist = toP.length();
     const fromHome = Math.hypot(b.pos.x - this.home.x, b.pos.z - this.home.z);
-    const chasing = !playerSafe && player.hp > 0 && dist < this.cfg.aggro && fromHome < 30;
+    const d = diff();
+    const chasing = !playerSafe && d.dmg > 0 && player.hp > 0 && dist < this.cfg.aggro * d.aggro && fromHome < 30;
     let dir;
     if (chasing) dir = toP.normalize();
     else {
@@ -709,7 +784,7 @@ class Enemy {
       dir = new THREE.Vector3(this.wander.x - b.pos.x, 0, this.wander.z - b.pos.z);
       const wl = dir.length();
       dir.multiplyScalar(wl > 1 ? 1 / wl : 0);
-      if (!chasing && this.hp < this.cfg.hp) this.hp = Math.min(this.cfg.hp, this.hp + dt * 8);
+      if (!chasing && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + dt * 8);
     }
     if (this.stunT > 0) {
       this.stunT -= dt;
@@ -718,13 +793,13 @@ class Enemy {
         b.vel.x *= 0.8; b.vel.z *= 0.8;
         this.hopT -= dt;
         if (this.hopT <= 0) {
-          const sp = chasing ? this.cfg.speed : 2.5;
+          const sp = chasing ? this.cfg.speed * d.speed : 2.5;
           b.vel.set(dir.x * sp, chasing ? 8.5 : 6, dir.z * sp);
           this.hopT = chasing ? 0.55 : 1.2 + Math.random();
         }
       }
     } else {
-      const sp = chasing ? this.cfg.speed : 2.2;
+      const sp = chasing ? this.cfg.speed * d.speed : 2.2;
       b.vel.x = dir.x * sp; b.vel.z = dir.z * sp;
     }
     const blocked = b.step(dt);
@@ -736,7 +811,7 @@ class Enemy {
     if (chasing && dist < reach && Math.abs(p.y - b.pos.y) < 2 && this.hitCd <= 0) {
       this.hitCd = this.type === 'slime' ? 0.9 : 1.1;
       if (this.avatar) this.avatar.attack();
-      hurtPlayer(this.cfg.dmg, b.pos);
+      hurtPlayer(Math.round(this.cfg.dmg * d.dmg), b.pos);
     }
     if (this.avatar) this.avatar.update(dt, b.pos, b.vel, b.onGround, chasing ? p : null);
     else {
@@ -796,14 +871,15 @@ const coinGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.1, 20);
 coinGeo.rotateX(Math.PI / 2);
 const coinMat = new THREE.MeshLambertMaterial({ color: 0xffcc33, emissive: 0x6b4c00 });
 const bigCoinMat = new THREE.MeshLambertMaterial({ color: 0xffb300, emissive: 0x8a5a00 });
-const coins = gen.coins.map(({ pos: [x, y, z], value }) => {
+function makeCoin({ pos: [x, y, z], value }) {
   const m = new THREE.Mesh(coinGeo, value > 1 ? bigCoinMat : coinMat);
   m.position.set(x, y, z);
   if (value > 1) m.scale.setScalar(1.7);
   m.castShadow = true;
   scene.add(m);
   return { mesh: m, value, respawnIn: 0 };
-});
+}
+const coins = gen.coins.map(makeCoin);
 
 // ---------- UI ----------
 const $ = (id) => document.getElementById(id);
@@ -831,11 +907,12 @@ function flashDamage() {
   damageTimer = setTimeout(() => v.classList.remove('on'), 250);
 }
 let currentZone = null;
+let currentBiome = null;
 function updateStageUI() {
   const cp = save.cp && checkpointById.get(save.cp);
   const doneCount = Object.keys(save.done).length;
-  let text = currentZone ? currentZone.name : 'Yovvoyi tabiat';
-  if (cp && player.body.pos.x > 79) text = `${cp.label}: ${cp.stage}-nazorat`;
+  let text = currentZone ? currentZone.name : (biomeAt(player.body.pos.x, player.body.pos.z) || 'Yovvoyi tabiat');
+  if (cp && inObby(player.body.pos)) text = `${cp.label}: ${cp.stage}-nazorat`;
   $('stage').textContent = text + (doneCount ? ` · Obby ${doneCount}/3 ★` : '');
 }
 let playersTimer = 0;
@@ -868,11 +945,40 @@ const mmBase = document.createElement('canvas');
   g.putImageData(img, 0, 0);
 }
 let mmTimer = 0;
+// Inside the hand-made map the minimap shows all of it; out in the endless land it follows the player
+const LOCAL_W = 96;
+const mmLocal = document.createElement('canvas');
+mmLocal.width = mmLocal.height = LOCAL_W;
+const mmLocalImg = mmLocal.getContext('2d').createImageData(LOCAL_W, LOCAL_W);
+let mmLocalAt = null;
+function topColorAt(x, z) {
+  if (x >= -MAP && x < MAP && z >= -MAP && z < MAP) return gen.topColors[(x + MAP) * MAP * 2 + (z + MAP)];
+  const c = landColors.get(colKey(x, z));
+  return c === undefined ? 0x1b2238 : c;
+}
 function drawMinimap() {
-  const S = MM.width, N = MAP * 2, k = S / N;
+  const S = MM.width;
+  const pl = player.body.pos;
+  const inside = Math.abs(pl.x) < MAP && Math.abs(pl.z) < MAP;
+  const W = inside ? MAP * 2 : LOCAL_W;
+  const ox = inside ? -MAP : Math.floor(pl.x) - LOCAL_W / 2, oz = inside ? -MAP : Math.floor(pl.z) - LOCAL_W / 2;
+  const k = S / W;
   mmg.imageSmoothingEnabled = false;
-  mmg.drawImage(mmBase, 0, 0, S, S);
-  const px = (x) => (x + MAP) * k, pz = (z) => (z + MAP) * k;
+  if (inside) mmg.drawImage(mmBase, 0, 0, S, S);
+  else {
+    if (!mmLocalAt || Math.abs(mmLocalAt[0] - ox) + Math.abs(mmLocalAt[1] - oz) >= 2 || mmLocalAt[2] !== landColors.size) {
+      const d = mmLocalImg.data;
+      for (let x = 0; x < W; x++) for (let z = 0; z < W; z++) {
+        const c = topColorAt(ox + x, oz + z);
+        const i = (z * W + x) * 4;
+        d[i] = (c >> 16) & 255; d[i + 1] = (c >> 8) & 255; d[i + 2] = c & 255; d[i + 3] = 255;
+      }
+      mmLocal.getContext('2d').putImageData(mmLocalImg, 0, 0);
+      mmLocalAt = [ox, oz, landColors.size];
+    }
+    mmg.drawImage(mmLocal, (mmLocalAt[0] - ox) * k, (mmLocalAt[1] - oz) * k, S, S);
+  }
+  const px = (x) => (x - ox) * k, pz = (z) => (z - oz) * k;
   mmg.fillStyle = '#ff3b30';
   for (const e of enemies) if (!e.dead) { mmg.fillRect(px(e.pos.x) - 2, pz(e.pos.z) - 2, 4, 4); }
   mmg.fillStyle = '#ffffff';
@@ -905,6 +1011,11 @@ SHIRT_COLORS.forEach((c, i) => {
   shirtBox.appendChild(b);
 });
 $('nameInput').value = save.name;
+function renderDiffs() {
+  for (const b of $('diffs').children) b.classList.toggle('sel', b.dataset.d === save.diff);
+}
+for (const b of $('diffs').children) b.onclick = () => { save.diff = b.dataset.d; persist(); renderDiffs(); };
+renderDiffs();
 
 let running = false;
 let paused = false;
@@ -1193,8 +1304,14 @@ for (const z of ZONES) {
 function renderSettings() {
   $('soundBtn').textContent = 'Ovoz: ' + (save.sound ? 'yoqilgan' : "o'chirilgan");
   $('gfxBtn').textContent = 'Grafika: ' + (save.gfx === 'high' ? 'yuqori' : 'past (tezroq)');
+  $('diffBtn').textContent = 'Qiyinlik: ' + diff().name;
 }
 $('soundBtn').onclick = () => { save.sound = !save.sound; initAudio(); persist(); renderSettings(); };
+const DIFF_ORDER = ['tinch', 'oson', 'orta', 'qiyin'];
+$('diffBtn').onclick = () => {
+  save.diff = DIFF_ORDER[(DIFF_ORDER.indexOf(save.diff) + 1) % DIFF_ORDER.length];
+  persist(); renderSettings(); renderDiffs();
+};
 $('gfxBtn').onclick = () => { save.gfx = save.gfx === 'high' ? 'low' : 'high'; persist(); renderSettings(); applyGraphics(); };
 $('resetBuildBtn').onclick = () => {
   const touched = new Set([...Object.keys(save.added).map(Number), ...save.removed]);
@@ -1419,7 +1536,7 @@ function updatePlayer(dt) {
   if (player.boostT > 0) player.boostT -= dt;
   player.hurtT -= dt;
   if (player.hurtT <= 0 && player.hp > 0 && player.hp < MAX_HP) {
-    player.hp = Math.min(MAX_HP, player.hp + dt * 6);
+    player.hp = Math.min(MAX_HP, player.hp + dt * diff().regen);
     updateHpUI();
   }
   if (player.hp <= 0) { b.vel.x *= 0.9; b.vel.z *= 0.9; b.step(dt); player.avatar.update(dt, b.pos, b.vel, b.onGround); return; }
@@ -1538,17 +1655,30 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   const t = now / 1000;
-  for (const c of clouds) { c.position.x += dt * 1.2; if (c.position.x > 220) c.position.x = -160; }
+  for (const c of clouds) {
+    c.position.x += dt * 1.2;
+    if (c.position.x > camera.position.x + 200) c.position.x -= 380;
+    else if (c.position.x < camera.position.x - 180) c.position.x += 380;
+    if (c.position.z > camera.position.z + 160) c.position.z -= 320;
+    else if (c.position.z < camera.position.z - 160) c.position.z += 320;
+  }
   for (const cl of flagCloths) cl.rotation.y = Math.sin(t * 3) * 0.25;
   water.position.y = WATER_Y + Math.sin(t * 1.2) * 0.04;
   if (running && !paused) {
     updatePlayer(dt);
     const p = player.body.pos;
     const zone = zoneAt(p.x, p.z);
-    const safe = (zone && zone.safe) || p.x > 79;
+    const safe = (zone && zone.safe) || inObby(p);
     if (!online) for (const b of bots) updateBot(b, dt);
     updateOnline(dt);
-    for (const e of enemies) e.update(dt, safe);
+    for (const e of enemies) {
+      const far = Math.abs(e.home.x - p.x) > 70 || Math.abs(e.home.z - p.z) > 70;
+      if (far) { if (!e.dead) e.group.visible = false; continue; }
+      if (!e.dead) e.group.visible = true;
+      e.update(dt, safe);
+    }
+    landTimer -= dt;
+    if (landTimer < 0) { landTimer = 0.05; if (updateLand(p.x, p.z, 2)) cullTimer = 0; }
     updateCoins(dt, t);
     updateCamera(dt);
     updateParticles(dt);
@@ -1557,9 +1687,11 @@ function frame(now) {
     zoneTimer -= dt;
     if (zoneTimer < 0) {
       zoneTimer = 0.5;
-      if (zone !== currentZone) {
-        currentZone = zone;
-        if (zone) toast(zone.name + (zone.safe ? ' (xavfsiz hudud)' : ''), 1500);
+      const biome = zone || inObby(p) ? null : biomeAt(p.x, p.z);
+      if (zone !== currentZone || biome !== currentBiome) {
+        if (zone && zone !== currentZone) toast(zone.name + (zone.safe ? ' (xavfsiz hudud)' : ''), 1500);
+        else if (biome && biome !== currentBiome) toast(biome, 1500);
+        currentZone = zone; currentBiome = biome;
         updateStageUI();
       }
     }
@@ -1579,6 +1711,6 @@ function frame(now) {
 }
 applyGraphics();
 requestAnimationFrame(frame);
-window.roblok = { player, save, bots, enemies, gen, teleport, remotes, get online() { return online; } };
+window.roblok = { player, save, bots, enemies, gen, teleport, remotes, updateLand, get online() { return online; } };
 
 document.addEventListener('visibilitychange', () => { last = performance.now(); input.keys.clear(); player.jumpHeld = false; });

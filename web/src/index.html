@@ -112,6 +112,11 @@
   .setBtn { width: 100%; padding: 12px; border-radius: 10px; background: #22304d; font-size: 15px; font-weight: 700; margin-top: 8px; text-align: left; }
   .menuRow { display: flex; gap: 8px; }
   .menuRow .primary { margin-top: 12px; font-size: 14px; padding: 12px; }
+  .diffs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .diffs button { padding: 9px 4px; border-radius: 10px; background: #22304d; font-weight: 800; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 1px; border: 2px solid transparent; }
+  .diffs button small { font-weight: 500; font-size: 10px; color: var(--muted); }
+  .diffs button.sel { background: #1d3b6b; border-color: var(--accent); }
   .tabs { display: flex; gap: 8px; margin-bottom: 4px; }
   .tab { flex: 1; padding: 10px 8px; border-radius: 12px; background: #22304d; font-weight: 800; font-size: 15px;
     display: flex; flex-direction: column; align-items: center; gap: 2px; border: 2px solid transparent; }
@@ -219,12 +224,20 @@
     </div>
     <label>Avatar rangi</label>
     <div class="colors" id="shirtColors"></div>
+    <label>Qiyinlik</label>
+    <div class="diffs" id="diffs">
+      <button data-d="tinch">Tinch<small>hujum yo'q</small></button>
+      <button data-d="oson">Oson</button>
+      <button data-d="orta">O'rta</button>
+      <button data-d="qiyin">Qiyin<small>×1.5 Roblon</small></button>
+    </div>
     <button class="primary" id="playBtn">O'YNASH</button>
     <p class="help">
       Onlayn: ro'yxatdan o'ting, do'stingiz bilan bir xil xona kodini yozing va birga o'ynang.
       🎤 Ovoz tugmasini bosib turib gapiring, qo'yib yuborsangiz xabar xonadagilarga boradi.<br>
       Chap tomonni bosib suring: yurish. O'ng tomonni suring: kamera, ikki barmoq: yaqinlashtirish.<br>
       ZARBA: qilich bilan urish. Dushmanlar (shilimshiq, qora ritsar) jonni kamaytiradi, ularni yengsangiz Roblon olasiz.<br>
+      Xarita cheksiz: chetidan chiqib keting, cho'l, o'rmon, ko'llar va qorli tog'lar o'zi paydo bo'ladi.<br>
       Obbyda 3 xil yo'l bor: Oson, O'rta va Qiyin. Registon, Labirint, Tog' va O'rmonni kashf qiling!<br>
       Kompyuterda: W A S D, Probel, F: zarba, B: qurish, V: ovozli xabar (bosib turing), Esc: menyu.
     </p>
@@ -241,6 +254,7 @@
     <div class="sectionTitle">Sozlamalar</div>
     <button class="setBtn" id="soundBtn">Ovoz</button>
     <button class="setBtn" id="gfxBtn">Grafika</button>
+    <button class="setBtn" id="diffBtn">Qiyinlik</button>
     <div class="menuRow">
       <button class="primary" id="resetBuildBtn" style="background:#3b4a6b">Qurilganlarni tozalash</button>
       <button class="primary" id="resetAllBtn" style="background:#8a2b2b">Yangidan boshlash</button>

@@ -498,3 +498,133 @@ export function generate() {
   }
   return out;
 }
+
+// ---------- Endless land around the hand-made map ----------
+// Chunks outside [-MAP, MAP) are generated on demand from the column position alone,
+// so every player (and every visit) gets the same land.
+export const WORLD_LIMIT = 992; // keys hold x, z in [-1024, 1023]
+const smooth = (a, b, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+export const BIOMES = {
+  desert: "Cho'l",
+  plains: 'Dala',
+  forest: "Yashil o'rmon",
+  hills: 'Adirlar',
+  mountains: "Qorli tog'lar",
+};
+
+// Open sky kept free of land (the obby floats over it), set from the base map: [x0, z0, x1, z1]
+export const LAND_VOIDS = [];
+export function inLandVoid(x, z) {
+  for (const [x0, z0, x1, z1] of LAND_VOIDS) if (x >= x0 && x <= x1 && z >= z0 && z <= z1) return true;
+  return false;
+}
+
+export function landColumn(x, z) {
+  if (inLandVoid(x, z)) return { h: MIN_Y - 40, top: null, biome: 'void', water: false, void: true };
+  const outside = Math.max(0, x - (MAP - 1), -MAP - x, z - (MAP - 1), -MAP - z);
+  const edge = Math.min(1, outside / 14);
+  const b = noise(x, z, 170, 31) * 0.75 + noise(x, z, 60, 37) * 0.25;
+  const base = noise(x, z, 40, 41) * 0.65 + noise(x, z, 13, 43) * 0.35;
+  let h = base * 6 - 1;
+  h += (base * 13 - h) * smooth(0.48, 0.62, b);
+  h += (base * 16 + 11 - h) * smooth(0.68, 0.86, b);
+  const desert = 1 - smooth(0.26, 0.34, b);
+  h += (base * 4 + 0.5 - h) * desert;
+  const lakeN = noise(x, z, 55, 47);
+  const lakeOk = edge >= 1 && b > 0.34 && b < 0.6;
+  if (lakeOk && lakeN > 0.7) h = Math.min(h, 1.5 - (lakeN - 0.7) * 30);
+  h = Math.round(h * edge);
+  h = Math.max(MIN_Y, h);
+  let biome = 'plains';
+  if (desert > 0.5) biome = 'desert';
+  else if (b > 0.77) biome = 'mountains';
+  else if (b > 0.55) biome = 'hills';
+  else if (noise(x, z, 30, 53) > 0.58) biome = 'forest';
+  const water = h < 0;
+  let top = T.GRASS;
+  if (biome === 'desert' || (lakeOk && lakeN > 0.66)) top = T.SAND;
+  if (h >= 17) top = T.SNOW;
+  else if (h >= 12 && biome === 'mountains') top = T.STONE;
+  return { h, top, biome, water };
+}
+
+export function biomeAt(x, z) {
+  if (x >= -MAP && x < MAP && z >= -MAP && z < MAP) return null;
+  return BIOMES[landColumn(Math.floor(x), Math.floor(z)).biome];
+}
+
+// Returns the blocks, coins, enemy homes and water columns of one 16x16 chunk.
+export function generateLandChunk(cx, cz) {
+  const S = 16;
+  const x0 = cx * S, z0 = cz * S;
+  const blocks = [];
+  const out = { blocks, coins: [], enemies: [], water: [], colors: [] };
+  const cols = new Map();
+  const col = (x, z) => {
+    const ck = x * 4096 + z;
+    let c = cols.get(ck);
+    if (!c) { c = landColumn(x, z); cols.set(ck, c); }
+    return c;
+  };
+  const put = (x, y, z, t) => blocks.push(key(x, y, z), t);
+  for (let x = x0; x < x0 + S; x++) for (let z = z0; z < z0 + S; z++) {
+    const c = col(x, z);
+    if (c.void) { out.colors.push(x, z, 0x0d1830); continue; }
+    const low = Math.min(col(x + 1, z).h, col(x - 1, z).h, col(x, z + 1).h, col(x, z - 1).h);
+    const from = Math.max(MIN_Y, Math.min(c.h, low) - 1);
+    const under = c.top === T.SAND ? T.SAND : (c.top === T.SNOW || c.top === T.STONE ? T.STONE : T.DIRT);
+    for (let y = from; y <= c.h; y++) put(x, y, z, y === c.h ? c.top : (y >= c.h - 2 ? under : T.STONE));
+    out.colors.push(x, z, c.water ? 0x2a8fd8 : BLOCKS[c.top].color);
+    if (c.water) { out.water.push(x, z); continue; }
+    const r = hash2(x, z, 61);
+    const lx = x - x0, lz = z - z0;
+    const inner = lx >= 2 && lx <= 13 && lz >= 2 && lz <= 13;
+    if (c.biome === 'desert' && r < 0.006) {
+      const hh = 2 + Math.floor(hash2(x, z, 67) * 2);
+      for (let y = 1; y <= hh; y++) put(x, c.h + y, z, T.HEDGE);
+    } else if (inner && c.top === T.GRASS && r < (c.biome === 'forest' ? 0.045 : c.biome === 'plains' ? 0.006 : 0.012)) {
+      const th = 3 + Math.floor(hash2(x, z, 71) * 3);
+      for (let y = 1; y <= th; y++) put(x, c.h + y, z, T.WOOD);
+      for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let dy = -1; dy <= 1; dy++) {
+        if (Math.abs(dx) + Math.abs(dz) + Math.max(0, dy) * 2 > 3 || (dx === 0 && dz === 0 && dy < 1)) continue;
+        put(x + dx, c.h + th + dy, z + dz, T.LEAVES);
+      }
+    }
+  }
+  // Coins, a rare treasure ruin and enemies, picked per chunk
+  const rnd = rng((cx * 73856093) ^ (cz * 19349663) ^ 0x5bd1e995);
+  const spot = () => {
+    for (let i = 0; i < 6; i++) {
+      const x = x0 + 2 + Math.floor(rnd() * 12), z = z0 + 2 + Math.floor(rnd() * 12);
+      const c = col(x, z);
+      if (!c.water && !c.void) return [x, z, c];
+    }
+    return null;
+  };
+  for (let i = 0; i < 2; i++) {
+    const s = spot();
+    if (s) out.coins.push({ pos: [s[0] + 0.5, s[2].h + 1.9, s[1] + 0.5], value: 1 });
+  }
+  if (rnd() < 0.06) {
+    const s = spot();
+    if (s) {
+      const [x, z, c] = s;
+      for (const [dx, dz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) {
+        const ph = 2 + Math.floor(rnd() * 3);
+        for (let y = 1; y <= ph; y++) put(x + dx, c.h + y, z + dz, rnd() < 0.3 ? T.BRICK : T.STONE);
+      }
+      put(x, c.h + 1, z, T.GOLD);
+      out.coins.push({ pos: [x + 0.5, c.h + 3, z + 0.5], value: 5 });
+    }
+  }
+  const far = Math.hypot(x0 + 8, z0 + 8);
+  if (rnd() < 0.3) {
+    const s = spot();
+    if (s) out.enemies.push({ type: 'slime', pos: [s[0] + 0.5, s[2].h + 1.2, s[1] + 0.5] });
+  }
+  if (far > 180 && rnd() < 0.15) {
+    const s = spot();
+    if (s) out.enemies.push({ type: 'knight', pos: [s[0] + 0.5, s[2].h + 1.2, s[1] + 0.5] });
+  }
+  return out;
+}
