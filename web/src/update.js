@@ -6,6 +6,7 @@
   $('versionText').textContent = 'v' + GAME_VERSION;
   var app = window.RoblokApp;
   if (!app) return;
+  $('apkLink').hidden = true; // already inside the Android app
   try { app.ready(); } catch (e) { /* older wrapper */ }
   fetch(SITE + 'version.json?t=' + Date.now(), { cache: 'no-store' })
     .then(function (r) { return r.json(); })

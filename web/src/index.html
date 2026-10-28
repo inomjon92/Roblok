@@ -112,6 +112,12 @@
   .setBtn { width: 100%; padding: 12px; border-radius: 10px; background: #22304d; font-size: 15px; font-weight: 700; margin-top: 8px; text-align: left; }
   .menuRow { display: flex; gap: 8px; }
   .menuRow .primary { margin-top: 12px; font-size: 14px; padding: 12px; }
+  .footer { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; align-items: stretch; }
+  .apkLink { display: block; text-align: center; padding: 12px; border-radius: 12px; background: #22304d; color: #fff;
+    font-weight: 800; text-decoration: none; border: 2px solid #2f4470; }
+  .apkLink:active { background: #2f4470; }
+  .contact { text-align: center; color: var(--muted); font-size: 14px; text-decoration: none; }
+  .contact:active { color: #fff; }
   .diffs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .diffs button { padding: 9px 4px; border-radius: 10px; background: #22304d; font-weight: 800; font-size: 13px;
     display: flex; flex-direction: column; align-items: center; gap: 1px; border: 2px solid transparent; }
@@ -232,6 +238,10 @@
       <button data-d="qiyin">Qiyin<small>×1.5 Roblon</small></button>
     </div>
     <button class="primary" id="playBtn">O'YNASH</button>
+    <div class="footer">
+      <a class="apkLink" id="apkLink" href="Roblok.apk" download="Roblok.apk">📱 Android ilovasini yuklab olish (APK)</a>
+      <a class="contact" href="tel:+998975212151">Aloqa: +998 97 521 21 51</a>
+    </div>
     <p class="help">
       Onlayn: ro'yxatdan o'ting, do'stingiz bilan bir xil xona kodini yozing va birga o'ynang.
       🎤 Ovoz tugmasini bosib turib gapiring, qo'yib yuborsangiz xabar xonadagilarga boradi.<br>
