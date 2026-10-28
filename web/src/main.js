@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   BLOCKS, T, MAP, MIN_Y, WATER_Y, LAKE, ZONES, key, parseKey, inLake, zoneAt, generate,
 } from './world.js';
+import { account, joinRoom } from './online.js';
 
 const BUILD_PALETTE = [T.STONE, T.WOOD, T.RED, T.BLUE, T.YELLOW, T.WHITE, T.BLACK, T.PURPLE, T.ORANGE, T.SAND, T.FERUZA, T.BRICK];
 const SHIRT_COLORS = [0x1e88e5, 0xe53935, 0x43a047, 0x8e24aa, 0xfb8c00, 0x222222, 0xf06292];
@@ -21,10 +22,12 @@ if (!readJSON(SAVE_KEY)) {
   if (old) { save.name = old.name || ''; save.shirt = old.shirt || 0; save.coins = old.coins || 0; }
 }
 let saveTimer = 0;
+let offlineCoins = null; // set while online: account Roblon live in save.coins, the phone's own are kept here
 function persist() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* storage unavailable */ }
+    const data = offlineCoins === null ? save : Object.assign({}, save, { coins: offlineCoins });
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* storage unavailable */ }
   }, 300);
 }
 
@@ -771,6 +774,7 @@ function playerAttack() {
   if (!running || paused || player.attackCd > 0 || player.hp <= 0) return;
   player.attackCd = 0.42;
   player.avatar.attack();
+  attackSeq = (attackSeq + 1) % 100;
   sfx('swing');
   const p = player.body.pos;
   let hit = false;
@@ -812,7 +816,7 @@ function toast(msg, ms = 1800) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
 }
-function updateCoinsUI() { $('coinCount').textContent = save.coins; }
+function updateCoinsUI() { $('coinCount').textContent = save.coins; if (online) online.coinsChanged(); }
 function updateHpUI() {
   const r = Math.max(0, player.hp) / MAX_HP;
   $('hpFill').style.width = (r * 100).toFixed(1) + '%';
@@ -836,9 +840,13 @@ function updateStageUI() {
 }
 let playersTimer = 0;
 function updatePlayersUI() {
-  const rows = [{ name: save.name, coins: save.coins, me: true }, ...bots.map((b) => ({ name: b.name, coins: b.coins }))]
+  const others = online
+    ? online.room.players.filter((p) => p.id !== online.room.id).map((p) => ({ name: p.name || p.id, coins: p.coins || 0 }))
+    : bots.map((b) => ({ name: b.name, coins: b.coins }));
+  const rows = [{ name: save.name, coins: save.coins, me: true }, ...others]
     .sort((a, b) => b.coins - a.coins).slice(0, 6);
-  $('players').innerHTML = '<div class="head">Reyting</div>' + rows.map((r) =>
+  const head = online ? `Onlayn: ${online.room.players.length || 1} kishi` : 'Reyting';
+  $('players').innerHTML = `<div class="head">${head}</div>` + rows.map((r) =>
     `<div class="row${r.me ? ' me' : ''}"><span>${escapeHtml(r.name)}</span><span>${r.coins}</span></div>`).join('');
 }
 function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -868,7 +876,9 @@ function drawMinimap() {
   mmg.fillStyle = '#ff3b30';
   for (const e of enemies) if (!e.dead) { mmg.fillRect(px(e.pos.x) - 2, pz(e.pos.z) - 2, 4, 4); }
   mmg.fillStyle = '#ffffff';
-  for (const b of bots) { mmg.beginPath(); mmg.arc(px(b.body.pos.x), pz(b.body.pos.z), 2.2, 0, Math.PI * 2); mmg.fill(); }
+  if (!online) for (const b of bots) { mmg.beginPath(); mmg.arc(px(b.body.pos.x), pz(b.body.pos.z), 2.2, 0, Math.PI * 2); mmg.fill(); }
+  mmg.fillStyle = '#5ce1ff';
+  for (const r of remotes.values()) { mmg.beginPath(); mmg.arc(px(r.pos.x), pz(r.pos.z), 3, 0, Math.PI * 2); mmg.fill(); }
   const p = player.body.pos;
   const a = player.avatar ? player.avatar.facing : 0;
   mmg.save();
@@ -898,11 +908,8 @@ $('nameInput').value = save.name;
 
 let running = false;
 let paused = false;
-$('playBtn').onclick = () => {
+function startGame() {
   initAudio();
-  const n = $('nameInput').value.trim().slice(0, 14);
-  save.name = n || 'Mehmon' + Math.floor(Math.random() * 900 + 100);
-  persist();
   player.avatar = new Avatar(save.name, SHIRT_COLORS[save.shirt], { sword: true, labelColor: '#ffe680' });
   respawn();
   $('startScreen').classList.remove('on');
@@ -910,8 +917,187 @@ $('playBtn').onclick = () => {
   running = true;
   updateCoinsUI(); updateStageUI(); updatePlayersUI(); updateHpUI();
   toast(`Xush kelibsiz, ${save.name}!`, 2500);
-  setTimeout(() => bots[0].avatar.say(`Salom, ${save.name}!`), 1500);
+  if (!online) setTimeout(() => bots[0].avatar.say(`Salom, ${save.name}!`), 1500);
+}
+$('playBtn').onclick = () => {
+  if (startMode === 'online') { startOnline(); return; }
+  const n = $('nameInput').value.trim().slice(0, 14);
+  save.name = n || 'Mehmon' + Math.floor(Math.random() * 900 + 100);
+  persist();
+  startGame();
 };
+
+// ---------- Online mode ----------
+let startMode = 'offline';
+let online = null; // { room, coinsChanged() } while playing online
+const remotes = new Map();
+const onlineEdits = new Map(); // block key -> type (or null for removed) changed during this online session
+function setStartMode(m) {
+  startMode = m;
+  $('tabOff').classList.toggle('sel', m === 'offline');
+  $('tabOn').classList.toggle('sel', m === 'online');
+  $('offPane').hidden = m !== 'offline';
+  $('onPane').hidden = m !== 'online';
+  $('playBtn').textContent = m === 'online' ? 'ONLAYN O\'YNASH' : "O'YNASH";
+  if (m === 'online') refreshAccount();
+}
+$('tabOff').onclick = () => setStartMode('offline');
+$('tabOn').onclick = () => setStartMode('online');
+let accountInfo = null;
+function showAuth(info, err) {
+  accountInfo = info;
+  $('authForm').hidden = !!info;
+  $('authOk').hidden = !info;
+  $('authErr').textContent = err || '';
+  if (info) { $('accName').textContent = info.username; $('accCoins').textContent = info.coins; }
+}
+async function refreshAccount() {
+  if (!account.session) { showAuth(null); return; }
+  if (accountInfo) return;
+  $('authErr').textContent = 'Ulanmoqda...';
+  const r = await account.me();
+  showAuth(r.error ? null : r, r.error && account.session ? r.error : '');
+}
+async function doAuth(kind) {
+  const u = $('userInput').value.trim(), pw = $('passInput').value;
+  if (!u || !pw) { $('authErr').textContent = 'Login va parolni yozing'; return; }
+  $('loginBtn').disabled = $('registerBtn').disabled = true;
+  $('authErr').textContent = 'Kuting...';
+  const r = kind === 'register' ? await account.register(u, pw, save.shirt) : await account.login(u, pw);
+  $('loginBtn').disabled = $('registerBtn').disabled = false;
+  if (r.error) { $('authErr').textContent = r.error; return; }
+  $('passInput').value = '';
+  showAuth(r);
+  if (kind === 'register') toast("Ro'yxatdan o'tdingiz!");
+}
+$('loginBtn').onclick = () => doAuth('login');
+$('registerBtn').onclick = () => doAuth('register');
+$('passInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') doAuth('login'); });
+$('logoutBtn').onclick = () => { account.logout(); showAuth(null); };
+
+function revertLocalEdits() {
+  // Online everyone starts from the same map; the phone's own builds come back in offline mode
+  const touched = new Set([...Object.keys(save.added).map(Number), ...save.removed]);
+  for (const k of touched) {
+    const [x, y, z] = parseKey(k);
+    setBlockAt(x, y, z, baseWorld.has(k) ? baseWorld.get(k) : null);
+  }
+  flushChunks();
+}
+function applyEdit(k, t) {
+  const [x, y, z] = parseKey(k);
+  if (t === null) { if (!world.has(k) || gen.protectedKeys.has(k)) return; } else if (!BLOCKS[t] || world.get(k) === t) return;
+  setBlockAt(x, y, z, t);
+  onlineEdits.set(k, t);
+}
+function removeRemote(id) {
+  const r = remotes.get(id);
+  if (!r) return;
+  scene.remove(r.avatar.group);
+  remotes.delete(id);
+}
+function startOnline() {
+  if (!accountInfo) { $('authErr').textContent = 'Avval kiring yoki ro\'yxatdan o\'ting'; return; }
+  const room = ($('roomInput').value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'umumiy').slice(0, 12);
+  offlineCoins = save.coins;
+  save.name = accountInfo.username;
+  save.coins = accountInfo.coins;
+  for (const b of bots) b.avatar.group.visible = false;
+  revertLocalEdits();
+  let saveTimer2 = 0;
+  online = {
+    roomName: room,
+    room: joinRoom(room, { username: accountInfo.username, shirt: save.shirt, coins: save.coins }, {
+      onState(id, st) {
+        let r = remotes.get(id);
+        if (!r || r.shirt !== st.c) {
+          if (r) removeRemote(id);
+          r = { avatar: new Avatar(id, SHIRT_COLORS[st.c] ?? SHIRT_COLORS[0], { sword: true, labelColor: '#9fe8ff' }),
+            pos: new THREE.Vector3(st.x, st.y, st.z), target: new THREE.Vector3(), vel: new THREE.Vector3(),
+            shirt: st.c, atk: st.a, ground: true, face: 0, seen: 0 };
+          remotes.set(id, r);
+        }
+        r.target.set(st.x, st.y, st.z); r.vel.set(st.vx, 0, st.vz);
+        r.ground = !!st.g; r.face = st.f; r.seen = performance.now();
+        if (st.a !== r.atk) { r.atk = st.a; r.avatar.attack(); }
+      },
+      onLeave: removeRemote,
+      onPlayers(list) {
+        updatePlayersUI();
+        const ids = new Set(list.map((p) => p.id));
+        for (const id of [...remotes.keys()]) if (!ids.has(id)) removeRemote(id);
+      },
+      onNewcomer(id) { if (onlineEdits.size) online.room.sendEdits(id, [...onlineEdits]); },
+      onEdits(list) { for (const [k, t] of list) applyEdit(Number(k), t); flushChunks(); },
+      onBlock(b) { if (b) { applyEdit(Number(b.k), b.t); flushChunks(); } },
+      onChat(id, text) {
+        const r = remotes.get(id);
+        if (r) r.avatar.say(text);
+        toast(`${id}: ${text}`, 2500);
+      },
+      onStatus(ok) {
+        const el = $('netBadge');
+        el.textContent = ok ? `· onlayn, xona: ${room}` : '· aloqa uzildi';
+        el.className = ok ? 'ok' : 'bad';
+        if (!ok) toast("Server bilan aloqa uzildi, qayta ulanmoqda...");
+      },
+    }),
+    coinsChanged() {
+      clearTimeout(saveTimer2);
+      saveTimer2 = setTimeout(() => {
+        account.save(save.coins, save.shirt);
+        online.room.updateMeta({ shirt: save.shirt, coins: save.coins });
+      }, 1500);
+    },
+  };
+  $('chatBtn').hidden = false;
+  $('leaveOnlineBtn').hidden = false;
+  $('resetBuildBtn').hidden = true;
+  $('menuHelp').textContent = 'Onlayn: Roblon akkauntingizda saqlanadi. Qurganlaringizni xonadagilar ko\'radi.';
+  startGame();
+  toast(`Xona: ${room}`, 2500);
+}
+let stateTimer = 0, attackSeq = 0;
+function updateOnline(dt) {
+  if (!online) return;
+  const now = performance.now();
+  for (const [id, r] of remotes) {
+    if (now - r.seen > 15000) { removeRemote(id); continue; }
+    if (r.pos.distanceToSquared(r.target) > 400) r.pos.copy(r.target);
+    else r.pos.lerp(r.target, Math.min(1, dt * 12));
+    const ft = r.pos.clone(); ft.x += Math.sin(r.face); ft.z += Math.cos(r.face);
+    r.avatar.update(dt, r.pos, r.vel, r.ground, ft);
+  }
+  stateTimer -= dt;
+  if (stateTimer < 0 && player.avatar) {
+    stateTimer = 0.1;
+    const b = player.body;
+    const q = (v) => Math.round(v * 100) / 100;
+    online.room.sendState({ x: q(b.pos.x), y: q(b.pos.y), z: q(b.pos.z), vx: q(b.vel.x), vz: q(b.vel.z),
+      g: b.onGround ? 1 : 0, f: q(player.avatar.facing), a: attackSeq, c: save.shirt });
+  }
+}
+$('leaveOnlineBtn').onclick = () => {
+  if (online) { account.save(save.coins, save.shirt); online.room.leave(); }
+  location.reload();
+};
+function openChat() {
+  $('chatBar').classList.add('on');
+  $('chatInput').focus();
+}
+function sendChat() {
+  const text = $('chatInput').value.trim().slice(0, 60);
+  $('chatBar').classList.remove('on');
+  $('chatInput').value = '';
+  $('chatInput').blur();
+  if (!text || !online) return;
+  online.room.sendChat(text);
+  if (player.avatar) player.avatar.say(text);
+}
+$('chatBtn').onclick = () => ($('chatBar').classList.contains('on') ? sendChat() : openChat());
+$('chatSend').onclick = sendChat;
+$('chatInput').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') sendChat(); if (e.key === 'Escape') sendChat(); });
+if (account.session) $('userInput').value = account.session.username;
 
 // Menu
 function openMenu() { paused = true; $('menuScreen').classList.add('on'); renderSettings(); }
@@ -1003,8 +1189,13 @@ function doBuildAt(clientX, clientY) {
   if (deleteMode) {
     if (gen.protectedKeys.has(k) || y <= MIN_Y) { toast("Bu blokni o'chirib bo'lmaydi"); return; }
     setBlockAt(x, y, z, null);
-    delete save.added[k];
-    if (baseWorld.has(k) && !save.removed.includes(k)) save.removed.push(k);
+    if (online) {
+      onlineEdits.set(k, null);
+      online.room.sendBlock({ k, t: null });
+    } else {
+      delete save.added[k];
+      if (baseWorld.has(k) && !save.removed.includes(k)) save.removed.push(k);
+    }
     sfx('break');
     burst(new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5), BLOCKS[baseWorld.get(k) ?? buildType].color, 8, 4);
   } else {
@@ -1012,11 +1203,16 @@ function doBuildAt(clientX, clientY) {
     const nx = x + Math.round(n.x), ny = y + Math.round(n.y), nz = z + Math.round(n.z);
     const nk = key(nx, ny, nz);
     if (world.has(nk) || ny > 70) return;
-    if (bodyOverlapsCell(player.body, nx, ny, nz) || bots.some((b) => bodyOverlapsCell(b.body, nx, ny, nz))) return;
+    if (bodyOverlapsCell(player.body, nx, ny, nz) || (!online && bots.some((b) => bodyOverlapsCell(b.body, nx, ny, nz)))) return;
     setBlockAt(nx, ny, nz, buildType);
-    const ri = save.removed.indexOf(nk);
-    if (ri >= 0) save.removed.splice(ri, 1);
-    if (baseWorld.get(nk) !== buildType) save.added[nk] = buildType;
+    if (online) {
+      onlineEdits.set(nk, buildType);
+      online.room.sendBlock({ k: nk, t: buildType });
+    } else {
+      const ri = save.removed.indexOf(nk);
+      if (ri >= 0) save.removed.splice(ri, 1);
+      if (baseWorld.get(nk) !== buildType) save.added[nk] = buildType;
+    }
     sfx('build');
   }
   flushChunks();
@@ -1117,6 +1313,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyB') setBuildMode(!buildMode);
   if (e.code === 'KeyX' && buildMode) { deleteMode = !deleteMode; renderBuildBar(); }
   if (e.code === 'KeyR') respawn();
+  if (e.code === 'KeyT' && online) { e.preventDefault(); input.keys.clear(); openChat(); }
   if (e.code === 'KeyF' || e.code === 'KeyE') playerAttack();
   if (e.code === 'Space') e.preventDefault();
 });
@@ -1272,7 +1469,8 @@ function frame(now) {
     const p = player.body.pos;
     const zone = zoneAt(p.x, p.z);
     const safe = (zone && zone.safe) || p.x > 79;
-    for (const b of bots) updateBot(b, dt);
+    if (!online) for (const b of bots) updateBot(b, dt);
+    updateOnline(dt);
     for (const e of enemies) e.update(dt, safe);
     updateCoins(dt, t);
     updateCamera(dt);
@@ -1304,6 +1502,6 @@ function frame(now) {
 }
 applyGraphics();
 requestAnimationFrame(frame);
-window.roblok = { player, save, bots, enemies, gen, teleport };
+window.roblok = { player, save, bots, enemies, gen, teleport, remotes, get online() { return online; } };
 
 document.addEventListener('visibilitychange', () => { last = performance.now(); input.keys.clear(); player.jumpHeld = false; });

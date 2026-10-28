@@ -112,6 +112,33 @@
   .setBtn { width: 100%; padding: 12px; border-radius: 10px; background: #22304d; font-size: 15px; font-weight: 700; margin-top: 8px; text-align: left; }
   .menuRow { display: flex; gap: 8px; }
   .menuRow .primary { margin-top: 12px; font-size: 14px; padding: 12px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 4px; }
+  .tab { flex: 1; padding: 10px 8px; border-radius: 12px; background: #22304d; font-weight: 800; font-size: 15px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px; border: 2px solid transparent; }
+  .tab small { font-weight: 500; font-size: 11px; color: var(--muted); }
+  .tab.sel { background: #1d3b6b; border-color: var(--accent); }
+  input[type=password] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #2c3954; background: #0b1020;
+    color: #fff; font-size: 16px; user-select: text; -webkit-user-select: text; }
+  .authBtns { display: flex; gap: 8px; margin-top: 12px; }
+  .authBtns button { flex: 1; padding: 12px; border-radius: 10px; background: #22304d; font-weight: 800; }
+  .authBtns button.main { background: var(--accent); }
+  .authBtns button:disabled { opacity: .5; }
+  #authErr { color: #ff8a80; font-size: 13px; min-height: 18px; margin-top: 8px; }
+  #authOk .who { display: flex; justify-content: space-between; align-items: center; margin-top: 12px;
+    background: #0b1020; border-radius: 10px; padding: 10px 12px; }
+  #authOk .who b { color: var(--gold); }
+  .linkBtn { background: none; color: var(--muted); text-decoration: underline; font-size: 13px; padding: 0; }
+  [hidden] { display: none !important; }
+  #netBadge { font-size: 12px; font-weight: 700; }
+  #netBadge.ok { color: var(--hp-good); }
+  #netBadge.bad { color: var(--hp-bad); }
+  #chatBtn { pointer-events: auto; }
+  #chatBar { position: absolute; left: 50%; top: 60px; transform: translateX(-50%); display: none; gap: 6px;
+    pointer-events: auto; width: min(420px, 80vw); }
+  #chatBar.on { display: flex; }
+  #chatInput { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid #2c3954; background: #0b1020; color: #fff;
+    font-size: 16px; user-select: text; -webkit-user-select: text; }
+  #chatSend { padding: 10px 14px; border-radius: 10px; background: var(--accent); font-weight: 800; }
   #updateBar { display: none; margin-bottom: 14px; padding: 12px; border-radius: 12px; background: #1d3b6b;
     align-items: center; gap: 10px; justify-content: space-between; font-size: 14px; font-weight: 700; }
   #updateBar.on { display: flex; }
@@ -133,12 +160,14 @@
   <div id="hpBar"><div id="hpFill"></div><div id="hpText">❤ <span id="hpText2"></span></div></div>
   <div id="topRight">
     <div style="display:flex; gap:8px">
+      <button class="iconBtn" id="chatBtn" hidden>💬 Chat</button>
       <button class="iconBtn" id="respawnBtn">↺ Qayta</button>
       <button class="iconBtn" id="menuBtn">☰ Menyu</button>
     </div>
     <div class="pill" id="players"></div>
   </div>
   <div id="toast"></div>
+  <div id="chatBar"><input type="text" id="chatInput" maxlength="60" placeholder="Xabar yozing..." autocomplete="off"><button id="chatSend">Yuborish</button></div>
   <div id="joyHint">Yurish uchun<br>shu yerni<br>bosib suring</div>
   <div id="joyBase"><div id="joyKnob"></div></div>
   <div id="actions">
@@ -154,12 +183,38 @@
     <div id="updateBar"><span id="updateText"></span><button id="updateBtn">Yuklab olish</button></div>
     <h1 class="logo">Roblok</h1>
     <p class="sub">O'zbekistonning o'yin olami. <span id="versionText"></span></p>
-    <label for="nameInput">Ismingiz</label>
-    <input type="text" id="nameInput" maxlength="14" placeholder="Masalan: Akbar" autocomplete="off">
+    <div class="tabs">
+      <button class="tab sel" id="tabOff">Oflayn<small>botlar bilan</small></button>
+      <button class="tab" id="tabOn">Onlayn<small>do'stlar bilan</small></button>
+    </div>
+    <div id="offPane">
+      <label for="nameInput">Ismingiz</label>
+      <input type="text" id="nameInput" maxlength="14" placeholder="Masalan: Akbar" autocomplete="off">
+    </div>
+    <div id="onPane" hidden>
+      <div id="authForm">
+        <label for="userInput">Login</label>
+        <input type="text" id="userInput" maxlength="14" placeholder="Masalan: akbar_07" autocomplete="username">
+        <label for="passInput">Parol</label>
+        <input type="password" id="passInput" maxlength="40" placeholder="Kamida 4 ta belgi" autocomplete="current-password">
+        <div class="authBtns">
+          <button class="main" id="loginBtn">Kirish</button>
+          <button id="registerBtn">Ro'yxatdan o'tish</button>
+        </div>
+      </div>
+      <div id="authOk" hidden>
+        <div class="who"><span>Siz: <b id="accName"></b> · <span id="accCoins">0</span> Roblon</span>
+          <button class="linkBtn" id="logoutBtn">Chiqish</button></div>
+        <label for="roomInput">Xona kodi (ixtiyoriy)</label>
+        <input type="text" id="roomInput" maxlength="12" placeholder="Bo'sh qolsa: umumiy server" autocomplete="off">
+      </div>
+      <div id="authErr"></div>
+    </div>
     <label>Avatar rangi</label>
     <div class="colors" id="shirtColors"></div>
     <button class="primary" id="playBtn">O'YNASH</button>
     <p class="help">
+      Onlayn: ro'yxatdan o'ting, do'stingiz bilan bir xil xona kodini yozing va birga o'ynang.<br>
       Chap tomonni bosib suring: yurish. O'ng tomonni suring: kamera, ikki barmoq: yaqinlashtirish.<br>
       ZARBA: qilich bilan urish. Dushmanlar (shilimshiq, qora ritsar) jonni kamaytiradi, ularni yengsangiz Roblon olasiz.<br>
       Obbyda 3 xil yo'l bor: Oson, O'rta va Qiyin. Registon, Labirint, Tog' va O'rmonni kashf qiling!<br>
@@ -171,7 +226,7 @@
 <div class="screen" id="menuScreen">
   <div class="card">
     <h1 class="logo" style="font-size:32px">Menyu</h1>
-    <p class="sub">O'yin to'xtatildi</p>
+    <p class="sub">O'yin to'xtatildi <span id="netBadge"></span></p>
     <button class="primary" id="resumeBtn">DAVOM ETISH</button>
     <div class="sectionTitle">Tez o'tish</div>
     <div id="travel"></div>
@@ -182,7 +237,8 @@
       <button class="primary" id="resetBuildBtn" style="background:#3b4a6b">Qurilganlarni tozalash</button>
       <button class="primary" id="resetAllBtn" style="background:#8a2b2b">Yangidan boshlash</button>
     </div>
-    <p class="help">Qurganlaringiz va Roblon telefoningizda saqlanadi.</p>
+    <button class="setBtn" id="leaveOnlineBtn" hidden>Oflayn rejimga o'tish</button>
+    <p class="help" id="menuHelp">Qurganlaringiz va Roblon telefoningizda saqlanadi.</p>
   </div>
 </div>
 

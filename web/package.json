@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "esbuild": "^0.24.0",
     "three": "^0.170.0"
   }
