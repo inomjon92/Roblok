@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b2a4a">
+<title>Roblok</title>
+<style>
+  :root {
+    --panel: rgba(18, 24, 38, 0.72);
+    --panel-solid: #121826;
+    --text: #ffffff;
+    --muted: #b8c2d6;
+    --accent: #00a2ff;
+    --gold: #ffcc33;
+    --danger: #ff4d4d;
+    --hp-good: #4cd964;
+    --hp-warn: #ffcc00;
+    --hp-bad: #ff3b30;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #87c5ff; color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; touch-action: none; }
+  canvas#game { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; }
+
+  /* HUD */
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
+  #hud.on { display: block; }
+  .pill { background: var(--panel); border-radius: 12px; padding: 8px 12px; backdrop-filter: blur(4px); }
+  #topLeft { position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left));
+    display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  #topLeft .rowTop { display: flex; gap: 8px; align-items: center; }
+  #minimap { width: 128px; height: 128px; border-radius: 12px; border: 2px solid rgba(255,255,255,.55);
+    background: #2a8fd8; image-rendering: pixelated; }
+  #hpBar { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+    width: min(260px, 36vw); height: 22px; border-radius: 11px; background: var(--panel); overflow: hidden;
+    border: 2px solid rgba(255,255,255,.5); }
+  #hpFill { height: 100%; width: 100%; background: var(--hp-good); transition: width .15s; }
+  #hpText { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 4px;
+    font-size: 13px; font-weight: 800; text-shadow: 0 1px 2px #000; }
+  #damage { position: absolute; inset: 0; box-shadow: inset 0 0 120px 30px rgba(255,0,0,.55); opacity: 0; transition: opacity .25s; }
+  #damage.on { opacity: 1; transition: none; }
+  #coins { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  #coins .dot { width: 18px; height: 18px; border-radius: 50%; background: var(--gold); box-shadow: inset 0 -3px 0 #c99a00; }
+  #stage { font-size: 14px; color: var(--muted); }
+  #topRight { position: absolute; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right));
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  #players { font-size: 13px; min-width: 150px; }
+  #players .row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  #players .row.me { color: var(--gold); font-weight: 700; }
+  #players .head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
+  .iconBtn { pointer-events: auto; background: var(--panel); border-radius: 12px; padding: 8px 12px; font-weight: 600; font-size: 14px; }
+
+  #toast { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); font-size: 22px; font-weight: 800;
+    text-shadow: 0 2px 6px rgba(0,0,0,.5); opacity: 0; transition: opacity .3s; text-align: center; white-space: nowrap; }
+  #toast.show { opacity: 1; }
+
+  /* Joystick */
+  #joyBase { position: absolute; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,.14);
+    border: 2px solid rgba(255,255,255,.35); display: none; transform: translate(-50%, -50%); }
+  #joyKnob { position: absolute; width: 58px; height: 58px; border-radius: 50%; background: rgba(255,255,255,.75);
+    left: 50%; top: 50%; transform: translate(-50%, -50%); }
+  #joyHint { position: absolute; left: max(40px, env(safe-area-inset-left)); bottom: 40px; width: 110px; height: 110px;
+    border-radius: 50%; border: 2px dashed rgba(255,255,255,.35); display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: rgba(255,255,255,.8); text-align: center; }
+
+  /* Action buttons */
+  #actions { position: absolute; right: max(20px, env(safe-area-inset-right)); bottom: 24px; width: 196px; height: 196px; }
+  #actions .round { position: absolute; }
+  #jumpBtn { right: 0; bottom: 0; }
+  #attackBtn { right: 104px; bottom: 6px; background: rgba(255, 90, 90, .35); }
+  #buildBtn { right: 8px; bottom: 108px; }
+  .round { pointer-events: auto; width: 76px; height: 76px; border-radius: 50%; background: rgba(255,255,255,.22);
+    border: 2px solid rgba(255,255,255,.5); font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+  .round.big { width: 92px; height: 92px; font-size: 15px; }
+  .round:active, .round.pressed { background: rgba(255,255,255,.45); }
+  .round.active { background: var(--accent); border-color: #fff; }
+
+  /* Build bar */
+  #buildBar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; gap: 8px; align-items: center;
+    pointer-events: auto; padding: 8px 10px; }
+  #buildBar.on { display: flex; }
+  .swatch { width: 34px; height: 34px; border-radius: 8px; border: 3px solid transparent; }
+  .swatch.sel { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+  .modeBtn { padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.15); font-size: 13px; font-weight: 700; }
+  .modeBtn.sel { background: var(--accent); }
+  .modeBtn.del.sel { background: var(--danger); }
+
+  /* Menu screens */
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 16px;
+    background: radial-gradient(ellipse at top, #2a4a8a 0%, #121826 70%); }
+  .screen.on { display: flex; }
+  .card { background: var(--panel-solid); border-radius: 18px; padding: 22px; width: min(440px, 100%); max-height: 100%; overflow: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5); user-select: auto; }
+  .logo { font-size: 44px; font-weight: 900; letter-spacing: -1px; margin: 0 0 2px;
+    background: linear-gradient(90deg, #00a2ff, #7c4dff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+  input[type=text] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #2c3954; background: #0b1020; color: #fff;
+    font-size: 16px; user-select: text; -webkit-user-select: text; }
+  .colors { display: flex; gap: 8px; flex-wrap: wrap; }
+  .colors button { width: 36px; height: 36px; border-radius: 50%; border: 3px solid transparent; }
+  .colors button.sel { border-color: #fff; }
+  .primary { width: 100%; margin-top: 20px; padding: 14px; border-radius: 12px; background: #00b06f; font-size: 18px; font-weight: 800; }
+  .primary:active { background: #00915b; }
+  .help { color: var(--muted); font-size: 12px; margin-top: 14px; line-height: 1.5; }
+  .sectionTitle { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 18px 0 8px; }
+  #travel { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+  .travelBtn { padding: 10px 8px; border-radius: 10px; background: #22304d; font-size: 14px; font-weight: 700; }
+  .travelBtn:active { background: #2f4470; }
+  .setBtn { width: 100%; padding: 12px; border-radius: 10px; background: #22304d; font-size: 15px; font-weight: 700; margin-top: 8px; text-align: left; }
+  .menuRow { display: flex; gap: 8px; }
+  .menuRow .primary { margin-top: 12px; font-size: 14px; padding: 12px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="damage"></div>
+  <div id="topLeft">
+    <div class="rowTop">
+      <div class="pill" id="coins"><span class="dot"></span><span id="coinCount">0</span> Roblon</div>
+      <div class="pill" id="stage">Markaz</div>
+    </div>
+    <canvas id="minimap" width="160" height="160"></canvas>
+  </div>
+  <div id="hpBar"><div id="hpFill"></div><div id="hpText">❤ <span id="hpText2"></span></div></div>
+  <div id="topRight">
+    <div style="display:flex; gap:8px">
+      <button class="iconBtn" id="respawnBtn">↺ Qayta</button>
+      <button class="iconBtn" id="menuBtn">☰ Menyu</button>
+    </div>
+    <div class="pill" id="players"></div>
+  </div>
+  <div id="toast"></div>
+  <div id="joyHint">Yurish uchun<br>shu yerni<br>bosib suring</div>
+  <div id="joyBase"><div id="joyKnob"></div></div>
+  <div id="actions">
+    <button class="round" id="buildBtn">QURISH</button>
+    <button class="round" id="attackBtn">ZARBA</button>
+    <button class="round big" id="jumpBtn">SAKRASH</button>
+  </div>
+  <div class="pill" id="buildBar"></div>
+</div>
+
+<div class="screen on" id="startScreen">
+  <div class="card">
+    <h1 class="logo">Roblok</h1>
+    <p class="sub">O'zbekistonning o'yin olami. Prototip v0.2</p>
+    <label for="nameInput">Ismingiz</label>
+    <input type="text" id="nameInput" maxlength="14" placeholder="Masalan: Akbar" autocomplete="off">
+    <label>Avatar rangi</label>
+    <div class="colors" id="shirtColors"></div>
+    <button class="primary" id="playBtn">O'YNASH</button>
+    <p class="help">
+      Chap tomonni bosib suring: yurish. O'ng tomonni suring: kamera, ikki barmoq: yaqinlashtirish.<br>
+      ZARBA: qilich bilan urish. Dushmanlar (shilimshiq, qora ritsar) jonni kamaytiradi, ularni yengsangiz Roblon olasiz.<br>
+      Obbyda 3 xil yo'l bor: Oson, O'rta va Qiyin. Registon, Labirint, Tog' va O'rmonni kashf qiling!<br>
+      Kompyuterda: W A S D, Probel, F: zarba, B: qurish, Esc: menyu.
+    </p>
+  </div>
+</div>
+
+<div class="screen" id="menuScreen">
+  <div class="card">
+    <h1 class="logo" style="font-size:32px">Menyu</h1>
+    <p class="sub">O'yin to'xtatildi</p>
+    <button class="primary" id="resumeBtn">DAVOM ETISH</button>
+    <div class="sectionTitle">Tez o'tish</div>
+    <div id="travel"></div>
+    <div class="sectionTitle">Sozlamalar</div>
+    <button class="setBtn" id="soundBtn">Ovoz</button>
+    <button class="setBtn" id="gfxBtn">Grafika</button>
+    <div class="menuRow">
+      <button class="primary" id="resetBuildBtn" style="background:#3b4a6b">Qurilganlarni tozalash</button>
+      <button class="primary" id="resetAllBtn" style="background:#8a2b2b">Yangidan boshlash</button>
+    </div>
+    <p class="help">Qurganlaringiz va Roblon telefoningizda saqlanadi.</p>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
