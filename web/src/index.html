@@ -112,6 +112,10 @@
   .setBtn { width: 100%; padding: 12px; border-radius: 10px; background: #22304d; font-size: 15px; font-weight: 700; margin-top: 8px; text-align: left; }
   .menuRow { display: flex; gap: 8px; }
   .menuRow .primary { margin-top: 12px; font-size: 14px; padding: 12px; }
+  #updateBar { display: none; margin-bottom: 14px; padding: 12px; border-radius: 12px; background: #1d3b6b;
+    align-items: center; gap: 10px; justify-content: space-between; font-size: 14px; font-weight: 700; }
+  #updateBar.on { display: flex; }
+  #updateBtn { padding: 8px 12px; border-radius: 10px; background: var(--gold); color: #1b1b1b; font-weight: 800; }
 </style>
 </head>
 <body>
@@ -147,8 +151,9 @@
 
 <div class="screen on" id="startScreen">
   <div class="card">
+    <div id="updateBar"><span id="updateText"></span><button id="updateBtn">Yuklab olish</button></div>
     <h1 class="logo">Roblok</h1>
-    <p class="sub">O'zbekistonning o'yin olami. Prototip v0.2</p>
+    <p class="sub">O'zbekistonning o'yin olami. <span id="versionText"></span></p>
     <label for="nameInput">Ismingiz</label>
     <input type="text" id="nameInput" maxlength="14" placeholder="Masalan: Akbar" autocomplete="off">
     <label>Avatar rangi</label>
@@ -182,5 +187,6 @@
 </div>
 
 <script src="game.js"></script>
+<script src="update.js"></script>
 </body>
 </html>

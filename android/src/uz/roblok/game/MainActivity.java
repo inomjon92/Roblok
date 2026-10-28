@@ -1,20 +1,36 @@
 package uz.roblok.game;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.net.Uri;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 public class MainActivity extends Activity {
+    // The game is served from the website so it updates without a new APK;
+    // the copy bundled in assets is used when there is no internet.
+    static final String SITE_URL = "https://roblok-inom1.vercel.app/";
+    static final String OFFLINE_URL = "file:///android_asset/index.html";
+    static final int VERSION_CODE = 3;
+
     private WebView webView;
+    private boolean usingOffline;
+    private volatile boolean pageReady;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,7 +57,20 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
-        webView.setWebViewClient(new WebViewClient());
+        s.setUserAgentString(s.getUserAgentString() + " RoblokApp/" + VERSION_CODE);
+        webView.addJavascriptInterface(new AppBridge(), "RoblokApp");
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
+                if (req.isForMainFrame()) loadOffline();
+            }
+
+            @Override
+            @SuppressWarnings("deprecation")
+            public void onReceivedError(WebView view, int code, String desc, String url) {
+                if (url != null && url.startsWith(SITE_URL)) loadOffline();
+            }
+        });
         webView.setWebChromeClient(new WebChromeClient());
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         setContentView(webView);
@@ -49,7 +78,61 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl("file:///android_asset/index.html");
+            if (isOnline()) {
+                webView.loadUrl(SITE_URL + "?app=" + VERSION_CODE);
+                // If the online game has not started in time (slow network, CDN down), use the bundled copy
+                webView.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!pageReady) loadOffline();
+                    }
+                }, 15000);
+            } else {
+                loadOffline();
+            }
+        }
+    }
+
+    private void loadOffline() {
+        if (usingOffline) return;
+        usingOffline = true;
+        webView.stopLoading();
+        webView.loadUrl(OFFLINE_URL);
+    }
+
+    @SuppressWarnings("deprecation")
+    private boolean isOnline() {
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo ni = cm == null ? null : cm.getActiveNetworkInfo();
+        return ni != null && ni.isConnected();
+    }
+
+    /** Exposed to the page as window.RoblokApp. */
+    class AppBridge {
+        @JavascriptInterface
+        public int versionCode() {
+            return VERSION_CODE;
+        }
+
+        @JavascriptInterface
+        public void ready() {
+            pageReady = true;
+        }
+
+        @JavascriptInterface
+        public boolean isOffline() {
+            return usingOffline;
+        }
+
+        @JavascriptInterface
+        public void openUrl(String url) {
+            if (url == null || !url.startsWith("https://")) return;
+            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                startActivity(i);
+            } catch (Exception ignored) {
+            }
         }
     }
 

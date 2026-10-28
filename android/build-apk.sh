@@ -9,7 +9,7 @@ OUT=build
 rm -rf $OUT && mkdir -p $OUT/classes $OUT/assets
 
 (cd ../web && ./build.sh)
-cp ../web/dist/index.html ../web/dist/game.js $OUT/assets/
+cp ../web/dist/index.html ../web/dist/game.js ../web/dist/update.js $OUT/assets/
 
 javac --release 8 -nowarn -cp "$ANDROID_JAR" -d $OUT/classes src/uz/roblok/game/*.java
 dalvik-exchange --dex --output=$OUT/classes.dex $OUT/classes
