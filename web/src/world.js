@@ -20,18 +20,29 @@ export const BLOCKS = [
   { name: 'Tuproq', color: 0x8b5a2b },             // 16 dirt
   { name: 'Asfalt', color: 0x4a4f57 },             // 17 road
   { name: 'Feruza', color: 0x1fb5c4 },             // 18 turquoise tile
-  { name: "G'isht", color: 0xc9a26b },             // 19 brick
+  { name: "G'isht", color: 0xc9a26b, mat: 1 },     // 19 brick
   { name: 'Lojuvard', color: 0x1c4fa0 },           // 20 lapis tile
   { name: 'Sakrash plitasi', color: 0x76ff03 },    // 21 jump pad
   { name: 'Tezlik plitasi', color: 0x00b0ff },     // 22 speed pad
   { name: 'Portal', color: 0xb388ff },             // 23 teleport to spawn
   { name: 'Qor', color: 0xffffff },                // 24 snow
   { name: 'Butazor', color: 0x1f6b2c },            // 25 hedge
+  // Building pieces. mat: 1 brick, 2 planks, 3 glass, 4 glowing, 5 door; see: lets light/faces through; pass: walk through
+  { name: 'Deraza', color: 0xbfe6ff, mat: 3, see: true },          // 26 window glass
+  { name: 'Eshik', color: 0x8a5a2e, mat: 5, pass: true },          // 27 door
+  { name: 'Taxta', color: 0xd09a5c, mat: 2 },                      // 28 planks
+  { name: 'Tom', color: 0xb5452f, mat: 1 },                        // 29 roof tiles
+  { name: "Oq g'isht", color: 0xeee6d6, mat: 1 },                  // 30 white brick
+  { name: 'Chiroq', color: 0xfff1a8, mat: 4 },                     // 31 lamp
+  { name: 'Marmar', color: 0xe3e8ec },                             // 32 marble
+  { name: "To'q taxta", color: 0x6b4423, mat: 2 },                 // 33 dark planks
+  { name: 'Qizil g\'isht', color: 0xb3473a, mat: 1 },              // 34 red brick
 ];
 export const T = {
   GRASS: 0, STONE: 1, WOOD: 2, LEAVES: 3, SAND: 4, RED: 5, BLUE: 6, YELLOW: 7, WHITE: 8, BLACK: 9,
   PURPLE: 10, ORANGE: 11, LAVA: 12, GOLD: 13, SPAWN: 14, CHECKPOINT: 15, DIRT: 16, ROAD: 17,
   FERUZA: 18, BRICK: 19, LAPIS: 20, JUMP: 21, SPEED: 22, PORTAL: 23, SNOW: 24, HEDGE: 25,
+  GLASS: 26, DOOR: 27, PLANKS: 28, ROOF: 29, WHITE_BRICK: 30, LAMP: 31, MARBLE: 32, DARK_PLANKS: 33, RED_BRICK: 34,
 };
 
 export const MAP = 80;          // ground spans x, z in [-MAP, MAP - 1]

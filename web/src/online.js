@@ -83,6 +83,9 @@ export function joinRoom(room, me, handlers) {
     if (payload && payload.id && payload.id !== id) handlers.onState(payload.id, payload);
   });
   channel.on('broadcast', { event: 'b' }, ({ payload }) => handlers.onBlock(payload));
+  channel.on('broadcast', { event: 'bb' }, ({ payload }) => {
+    if (payload && Array.isArray(payload.l) && payload.l.length <= 2000) handlers.onBlocks(payload.l);
+  });
   channel.on('broadcast', { event: 'edits' }, ({ payload }) => {
     if (payload && payload.to === id) handlers.onEdits(payload.list || []);
   });
@@ -123,6 +126,7 @@ export function joinRoom(room, me, handlers) {
     get players() { return players; },
     sendState(s) { s.id = id; send('s', s); },
     sendBlock(b) { send('b', b); },
+    sendBlocks(list) { send('bb', { l: list }); },
     sendEdits(to, list) { send('edits', { to, list }); },
     sendChat(text) { send('chat', { id, text }); },
     sendVoice(mime, data) { send('voice', { id, mime, data }); },

@@ -5,7 +5,11 @@ import {
 } from './world.js';
 import { account, joinRoom } from './online.js';
 
-const BUILD_PALETTE = [T.STONE, T.WOOD, T.RED, T.BLUE, T.YELLOW, T.WHITE, T.BLACK, T.PURPLE, T.ORANGE, T.SAND, T.FERUZA, T.BRICK];
+const BUILD_PALETTE = [
+  T.BRICK, T.RED_BRICK, T.WHITE_BRICK, T.GLASS, T.DOOR, T.PLANKS, T.DARK_PLANKS, T.ROOF, T.LAMP, T.MARBLE,
+  T.STONE, T.WOOD, T.RED, T.BLUE, T.YELLOW, T.WHITE, T.BLACK, T.PURPLE, T.ORANGE, T.SAND, T.FERUZA, T.LEAVES,
+];
+const blocksAt = (k) => { const t = world.get(k); return t !== undefined && !BLOCKS[t].pass; };
 const SHIRT_COLORS = [0x1e88e5, 0xe53935, 0x43a047, 0x8e24aa, 0xfb8c00, 0x222222, 0xf06292];
 const SAVE_KEY = 'roblok.save.v2';
 const OLD_SAVE_KEY = 'roblok.save.v1';
@@ -43,7 +47,7 @@ for (const k of save.removed) world.delete(Number(k));
 for (const k in save.added) world.set(Number(k), save.added[k]);
 save.removed = save.removed.map(Number);
 
-const isSolid = (x, y, z) => world.has(key(Math.floor(x), Math.floor(y), Math.floor(z)));
+const isSolid = (x, y, z) => blocksAt(key(Math.floor(x), Math.floor(y), Math.floor(z)));
 
 // ---------- Renderer / scene ----------
 const canvas = document.getElementById('game');
@@ -86,6 +90,55 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
+function canvasTexture(draw) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  draw(c.getContext('2d'));
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+const brickTexture = () => canvasTexture((g) => {
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = 'rgba(0,0,0,0.05)';
+  for (let i = 0; i < 30; i++) g.fillRect(Math.random() * 64, Math.random() * 64, 3, 2);
+  g.fillStyle = 'rgba(70,60,50,0.45)';
+  for (let r = 0; r < 4; r++) {
+    g.fillRect(0, r * 16, 64, 3);
+    const off = r % 2 ? 0 : 16;
+    for (let x = off; x < 64; x += 32) g.fillRect(x, r * 16, 3, 16);
+  }
+});
+const plankTexture = () => canvasTexture((g) => {
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = 'rgba(60,35,10,0.18)'; g.lineWidth = 1;
+  for (let i = 0; i < 14; i++) { const y = Math.random() * 64; g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(20, y + 3, 40, y - 3, 64, y); g.stroke(); }
+  g.fillStyle = 'rgba(60,35,10,0.4)';
+  for (let r = 0; r < 4; r++) g.fillRect(0, r * 16, 64, 2);
+  g.fillRect(30, 2, 2, 14); g.fillRect(12, 34, 2, 14); g.fillRect(48, 18, 2, 14); g.fillRect(40, 50, 2, 14);
+});
+const glassTexture = () => canvasTexture((g) => {
+  g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = 'rgba(255,255,255,0.9)';
+  g.fillRect(0, 0, 64, 5); g.fillRect(0, 59, 64, 5); g.fillRect(0, 0, 5, 64); g.fillRect(59, 0, 5, 64);
+  g.fillRect(30, 0, 4, 64); g.fillRect(0, 30, 64, 4);
+  g.fillStyle = 'rgba(255,255,255,0.7)';
+  g.beginPath(); g.moveTo(10, 24); g.lineTo(24, 10); g.lineTo(27, 13); g.lineTo(13, 27); g.fill();
+});
+const lampTexture = () => canvasTexture((g) => {
+  const gr = g.createRadialGradient(32, 32, 4, 32, 32, 40);
+  gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#d9c27a');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = 'rgba(90,70,30,0.8)'; g.lineWidth = 5; g.strokeRect(2, 2, 60, 60);
+  g.lineWidth = 3; g.beginPath(); g.moveTo(32, 2); g.lineTo(32, 62); g.moveTo(2, 32); g.lineTo(62, 32); g.stroke();
+});
+const doorTexture = () => canvasTexture((g) => {
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = 'rgba(50,25,5,0.55)'; g.lineWidth = 4; g.strokeRect(3, 3, 58, 58);
+  g.lineWidth = 3; g.strokeRect(12, 10, 40, 18); g.strokeRect(12, 36, 40, 20);
+  g.fillStyle = '#e0b83a'; g.beginPath(); g.arc(50, 33, 4, 0, Math.PI * 2); g.fill();
+});
 function makeBlockTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
@@ -109,6 +162,17 @@ const chunkMeshes = new Map();
 const dirtyChunks = new Set();
 const blockGeo = new THREE.BoxGeometry(1, 1, 1);
 const blockMat = new THREE.MeshLambertMaterial({ map: makeBlockTexture() });
+// One material per look; each chunk gets one instanced mesh per material it uses
+const MATS = [
+  blockMat,
+  new THREE.MeshLambertMaterial({ map: brickTexture() }),
+  new THREE.MeshLambertMaterial({ map: plankTexture() }),
+  new THREE.MeshLambertMaterial({ map: glassTexture(), transparent: true, opacity: 0.6, depthWrite: false }),
+  new THREE.MeshBasicMaterial({ map: lampTexture() }),
+  new THREE.MeshLambertMaterial({ map: doorTexture() }),
+];
+const matOf = (t) => BLOCKS[t].mat || 0;
+const occludes = (k) => { const t = world.get(k); return t !== undefined && !BLOCKS[t].see; };
 const tmpMat = new THREE.Matrix4();
 const tmpColor = new THREE.Color();
 
@@ -122,38 +186,46 @@ function indexBlock(k) {
 for (const k of world.keys()) indexBlock(k);
 
 function exposed(x, y, z) {
-  return !world.has(key(x + 1, y, z)) || !world.has(key(x - 1, y, z)) || !world.has(key(x, y + 1, z))
-    || (y > MIN_Y && !world.has(key(x, y - 1, z))) || !world.has(key(x, y, z + 1)) || !world.has(key(x, y, z - 1));
+  return !occludes(key(x + 1, y, z)) || !occludes(key(x - 1, y, z)) || !occludes(key(x, y + 1, z))
+    || (y > MIN_Y && !occludes(key(x, y - 1, z))) || !occludes(key(x, y, z + 1)) || !occludes(key(x, y, z - 1));
 }
 
 function buildChunk(ck) {
   const set = chunkBlocks.get(ck);
-  const list = [];
+  const lists = MATS.map(() => []);
   if (set) for (const k of set) {
     const [x, y, z] = parseKey(k);
-    if (exposed(x, y, z)) list.push(k);
+    if (exposed(x, y, z)) lists[matOf(world.get(k))].push(k);
   }
-  let mesh = chunkMeshes.get(ck);
-  if (!mesh || mesh.instanceMatrix.count < list.length) {
-    if (mesh) { scene.remove(mesh); mesh.dispose(); }
-    mesh = new THREE.InstancedMesh(blockGeo, blockMat, list.length + 48);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    chunkMeshes.set(ck, mesh);
-    scene.add(mesh);
-  }
-  list.forEach((k, i) => {
-    const [x, y, z] = parseKey(k);
-    tmpMat.makeTranslation(x + 0.5, y + 0.5, z + 0.5);
-    mesh.setMatrixAt(i, tmpMat);
-    mesh.setColorAt(i, tmpColor.setHex(BLOCKS[world.get(k)].color));
+  let meshes = chunkMeshes.get(ck);
+  if (!meshes) { meshes = []; chunkMeshes.set(ck, meshes); }
+  lists.forEach((list, mi) => {
+    let mesh = meshes[mi];
+    if (!list.length && !mesh) return;
+    if (!mesh || mesh.instanceMatrix.count < list.length) {
+      const visible = mesh ? mesh.visible : true;
+      if (mesh) { scene.remove(mesh); mesh.dispose(); }
+      mesh = new THREE.InstancedMesh(blockGeo, MATS[mi], list.length + (mi ? 8 : 48));
+      mesh.castShadow = mi !== 3 && mi !== 4;
+      mesh.receiveShadow = mi !== 4;
+      if (mi === 3) mesh.renderOrder = 1;
+      mesh.visible = visible;
+      meshes[mi] = mesh;
+      scene.add(mesh);
+    }
+    list.forEach((k, i) => {
+      const [x, y, z] = parseKey(k);
+      tmpMat.makeTranslation(x + 0.5, y + 0.5, z + 0.5);
+      mesh.setMatrixAt(i, tmpMat);
+      mesh.setColorAt(i, tmpColor.setHex(BLOCKS[world.get(k)].color));
+    });
+    mesh.count = list.length;
+    mesh.userData.keys = list;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    mesh.computeBoundingBox();
   });
-  mesh.count = list.length;
-  mesh.userData.keys = list;
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  mesh.computeBoundingSphere();
-  mesh.computeBoundingBox();
 }
 for (const ck of chunkBlocks.keys()) buildChunk(ck);
 
@@ -178,10 +250,11 @@ function flushChunks() {
 }
 let cullTimer = 0;
 function cullChunks(px, pz) {
-  for (const [ck, mesh] of chunkMeshes) {
+  for (const [ck, meshes] of chunkMeshes) {
     const cx = (Math.floor(ck / 256) - 128) * CHUNK + CHUNK / 2;
     const cz = ((ck % 256) - 128) * CHUNK + CHUNK / 2;
-    mesh.visible = Math.hypot(cx - px, cz - pz) < viewDist + CHUNK;
+    const vis = Math.hypot(cx - px, cz - pz) < viewDist + CHUNK;
+    for (const m of meshes) if (m) m.visible = vis;
   }
 }
 
@@ -517,7 +590,7 @@ class Body {
     const y0 = Math.floor(p.y), y1 = Math.floor(p.y + this.h - 1e-6);
     const z0 = Math.floor(p.z - w), z1 = Math.floor(p.z + w - 1e-6);
     for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) {
-      if (world.has(key(x, y, z))) return true;
+      if (blocksAt(key(x, y, z))) return true;
     }
     return false;
   }
@@ -1141,6 +1214,7 @@ function startOnline() {
       onNewcomer(id) { if (onlineEdits.size) online.room.sendEdits(id, [...onlineEdits]); },
       onEdits(list) { for (const [k, t] of list) applyEdit(Number(k), t); flushChunks(); },
       onBlock(b) { if (b) { applyEdit(Number(b.k), b.t); flushChunks(); } },
+      onBlocks(list) { for (let i = 0; i + 1 < list.length; i += 2) applyEdit(Number(list[i]), list[i + 1]); flushChunks(); },
       onChat(id, text) {
         const r = remotes.get(id);
         if (r) r.avatar.say(text);
@@ -1344,15 +1418,31 @@ function renderBuildBar() {
   del.className = 'modeBtn del' + (deleteMode ? ' sel' : '');
   del.textContent = "O'chirish";
   del.onclick = () => { deleteMode = true; renderBuildBar(); };
-  buildBar.append(place, del);
+  const name = document.createElement('div');
+  name.className = 'buildName';
+  name.textContent = deleteMode ? "Blokni bosing" : (buildType === 'house' ? 'Tayyor uy' : BLOCKS[buildType].name);
+  const tools = document.createElement('div');
+  tools.className = 'buildTools';
+  tools.append(place, del, name);
+  const list = document.createElement('div');
+  list.className = 'swatches';
+  const house = document.createElement('button');
+  house.className = 'swatch prefab' + (buildType === 'house' && !deleteMode ? ' sel' : '');
+  house.textContent = '🏠';
+  house.title = 'Tayyor uy';
+  house.onclick = () => { buildType = 'house'; deleteMode = false; renderBuildBar(); };
+  list.appendChild(house);
   for (const t of BUILD_PALETTE) {
     const s = document.createElement('button');
-    s.className = 'swatch' + (t === buildType && !deleteMode ? ' sel' : '');
-    s.style.background = '#' + BLOCKS[t].color.toString(16).padStart(6, '0');
+    s.className = 'swatch' + (t === buildType && !deleteMode ? ' sel' : '') + (BLOCKS[t].mat ? ' m' + BLOCKS[t].mat : '');
+    s.style.backgroundColor = '#' + BLOCKS[t].color.toString(16).padStart(6, '0');
     s.title = BLOCKS[t].name;
     s.onclick = () => { buildType = t; deleteMode = false; renderBuildBar(); };
-    buildBar.appendChild(s);
+    list.appendChild(s);
   }
+  buildBar.append(tools, list);
+  const sel = list.querySelector('.sel');
+  if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 function setBuildMode(on) {
   buildMode = on;
@@ -1368,11 +1458,54 @@ function bodyOverlapsCell(b, x, y, z) {
   const p = b.pos;
   return p.x + b.w > x && p.x - b.w < x + 1 && p.y + b.h > y && p.y < y + 1 && p.z + b.w > z && p.z - b.w < z + 1;
 }
+// Ready-made house: brick walls, door facing the player, glass windows, a tiled hip roof and a lamp
+function placeHouse(ox, oy, oz) {
+  const p = player.body.pos;
+  const dx = ox + 0.5 - p.x, dz = oz + 0.5 - p.z;
+  // u runs along the front wall, v goes away from the player
+  const [ax, az, bx, bz] = Math.abs(dx) > Math.abs(dz) ? [0, Math.sign(dx), Math.sign(dx), 0] : [-Math.sign(dz), 0, 0, Math.sign(dz)];
+  const cells = [];
+  const at = (u, y, v, t) => cells.push([ox + u * ax + v * bx, oy + y, oz + u * az + v * bz, t]);
+  for (let u = -3; u <= 3; u++) for (let v = 0; v <= 6; v++) {
+    const wall = Math.abs(u) === 3 || v === 0 || v === 6;
+    if (!wall) continue;
+    for (let y = 0; y < 4; y++) {
+      let t = T.BRICK;
+      const corner = Math.abs(u) === 3 && (v === 0 || v === 6);
+      if (corner) t = T.DARK_PLANKS;
+      else if (v === 0 && u === 0 && y < 2) t = T.DOOR;
+      else if ((y === 1 || y === 2) && ((v === 0 || v === 6) && Math.abs(u) === 2 || Math.abs(u) === 3 && (v === 2 || v === 4))) t = T.GLASS;
+      at(u, y, v, t);
+    }
+  }
+  for (let i = 0; i < 5; i++) {
+    const u0 = -4 + i, u1 = 4 - i, v0 = -1 + i, v1 = 7 - i;
+    for (let u = u0; u <= u1; u++) for (let v = v0; v <= v1; v++) {
+      if (i < 4 && u !== u0 && u !== u1 && v !== v0 && v !== v1) continue;
+      at(u, 4 + i, v, T.ROOF);
+    }
+  }
+  at(0, 3, 3, T.LAMP);
+  const placed = [];
+  for (const [x, y, z, t] of cells) {
+    const k = key(x, y, z);
+    if (world.has(k) || y > 70 || bodyOverlapsCell(player.body, x, y, z)) continue;
+    setBlockAt(x, y, z, t);
+    placed.push(k, t);
+    if (!online) {
+      const ri = save.removed.indexOf(k);
+      if (ri >= 0) save.removed.splice(ri, 1);
+      if (baseWorld.get(k) !== t) save.added[k] = t;
+    } else onlineEdits.set(k, t);
+  }
+  if (online && placed.length) online.room.sendBlocks(placed);
+  if (placed.length) { sfx('build'); toast('Uy qurildi!', 1500); } else toast("Bu yerga sig'madi");
+}
 function doBuildAt(clientX, clientY) {
   ndc.set((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   raycaster.far = 40;
-  const meshes = [...chunkMeshes.values()].filter((m) => m.visible && m.count > 0);
+  const meshes = [...chunkMeshes.values()].flat().filter((m) => m && m.visible && m.count > 0);
   const hit = raycaster.intersectObjects(meshes, false)[0];
   if (!hit) return;
   const k = hit.object.userData.keys[hit.instanceId];
@@ -1382,6 +1515,7 @@ function doBuildAt(clientX, clientY) {
   if (reach > 16) { toast('Juda uzoq'); return; }
   if (deleteMode) {
     if (gen.protectedKeys.has(k) || y <= MIN_Y) { toast("Bu blokni o'chirib bo'lmaydi"); return; }
+    const oldType = world.get(k);
     setBlockAt(x, y, z, null);
     if (online) {
       onlineEdits.set(k, null);
@@ -1391,11 +1525,17 @@ function doBuildAt(clientX, clientY) {
       if (baseWorld.has(k) && !save.removed.includes(k)) save.removed.push(k);
     }
     sfx('break');
-    burst(new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5), BLOCKS[baseWorld.get(k) ?? buildType].color, 8, 4);
+    burst(new THREE.Vector3(x + 0.5, y + 0.5, z + 0.5), BLOCKS[oldType].color, 8, 4);
   } else {
     const n = hit.face.normal;
     const nx = x + Math.round(n.x), ny = y + Math.round(n.y), nz = z + Math.round(n.z);
     const nk = key(nx, ny, nz);
+    if (buildType === 'house') {
+      placeHouse(nx, ny, nz);
+      flushChunks();
+      persist();
+      return;
+    }
     if (world.has(nk) || ny > 70) return;
     if (bodyOverlapsCell(player.body, nx, ny, nz) || (!online && bots.some((b) => bodyOverlapsCell(b.body, nx, ny, nz)))) return;
     setBlockAt(nx, ny, nz, buildType);

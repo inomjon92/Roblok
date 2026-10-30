@@ -1,6 +1,6 @@
 // Android app: tell the wrapper the game started, and offer a newer APK when one is out.
 (function () {
-  var GAME_VERSION = '0.5.0';
+  var GAME_VERSION = '0.6.0';
   var SITE = 'https://roblok-inom1.vercel.app/';
   var $ = function (id) { return document.getElementById(id); };
   $('versionText').textContent = 'v' + GAME_VERSION;

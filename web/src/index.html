@@ -78,11 +78,27 @@
   .round.active { background: var(--accent); border-color: #fff; }
 
   /* Build bar */
-  #buildBar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; gap: 8px; align-items: center;
-    pointer-events: auto; padding: 8px 10px; }
+  #buildBar { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: none; gap: 6px;
+    flex-direction: column; pointer-events: auto; padding: 8px 10px; width: min(560px, calc(100vw - 440px)); min-width: 280px; }
   #buildBar.on { display: flex; }
-  .swatch { width: 34px; height: 34px; border-radius: 8px; border: 3px solid transparent; }
+  .buildTools { display: flex; gap: 6px; align-items: center; }
+  .buildName { flex: 1; text-align: right; font-size: 13px; font-weight: 700; color: var(--gold); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .swatches { display: flex; gap: 6px; overflow-x: auto; padding: 3px 2px; scrollbar-width: none; touch-action: pan-x; }
+  .swatches::-webkit-scrollbar { display: none; }
+  .swatch { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 8px; border: 3px solid transparent; font-size: 18px;
+    background-size: 100% 100%; }
   .swatch.sel { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+  .swatch.prefab { background: #2f4470; }
+  .swatch.m1 { background-image: linear-gradient(rgba(60,50,40,.45) 2px, transparent 2px),
+    linear-gradient(90deg, rgba(60,50,40,.45) 2px, transparent 2px); background-size: 15px 10px; }
+  .swatch.m2 { background-image: linear-gradient(rgba(60,35,10,.4) 2px, transparent 2px); background-size: 100% 8px; }
+  .swatch.m3 { background-image: linear-gradient(90deg, transparent 45%, #fff 45%, #fff 55%, transparent 55%),
+    linear-gradient(transparent 45%, #fff 45%, #fff 55%, transparent 55%); opacity: .85; }
+  .swatch.m4 { box-shadow: 0 0 10px 2px rgba(255, 230, 120, .8); }
+  .swatch.m4.sel { box-shadow: 0 0 0 2px var(--accent), 0 0 10px 2px rgba(255, 230, 120, .8); }
+  .swatch.m5 { background-image: radial-gradient(circle at 78% 52%, #e0b83a 3px, transparent 4px),
+    linear-gradient(rgba(50,25,5,.5) 2px, transparent 2px); background-size: 100% 100%, 100% 50%; }
   .modeBtn { padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.15); font-size: 13px; font-weight: 700; }
   .modeBtn.sel { background: var(--accent); }
   .modeBtn.del.sel { background: var(--danger); }
